@@ -9,7 +9,8 @@ A Country, Region or City that the user can mark, annotate and photograph.
 _Avoid_: Location, destination, spot
 
 **Country** (Pays):
-A top-level Place, identified by its ISO 3166-1 code.
+A top-level Place, identified by its ISO 3166-1 code. Includes territories drawn separately on the map (e.g. Greenland, Hong Kong), which are marked independently of their sovereign state.
+_Avoid_: Nation, state
 
 **Region** (Région):
 A first-level administrative subdivision of a Country (ADM1), e.g. Kansai, Toscane.
@@ -42,7 +43,7 @@ _Avoid_: Pin, bookmark, favourite
 The Status of a Place with no Visited or Wish Mark on it or inside it. An Unexplored Place can still hold a Note and Photos.
 
 **Visit date**:
-The single, optional, month-precision date the user associates with having visited a Place.
+The single month-precision date the user associates with having visited a Place. It defaults to the month the Place was marked Visited and can be edited to record an earlier trip; a Place without its own Visit date shows the range of the Visit dates inside it.
 _Avoid_: Trip, visitedAt
 
 ## Content
