@@ -1,0 +1,16 @@
+<!-- @dsCard group="Components" viewport="700x320" name="Superpositions" subtitle="BottomSheet, Dialog, Toast" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-sans)}*{box-sizing:border-box}.r{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.c{display:flex;flex-direction:column;gap:14px;padding:24px}.l{font:var(--text-caption);color:var(--text-muted);width:84px;flex-shrink:0}</style></head>
+<body><div id="root"></div><script type="text/babel">
+const { BottomSheet, Dialog, Toast, Button } = window.GlobeTrotterDesignSystem_93b564;
+function App(){return <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,padding:20,height:320}}>
+<div style={{position:'relative',background:'var(--globe-ocean)',borderRadius:'var(--radius-lg)',overflow:'hidden'}}><BottomSheet snap="half" header={<div style={{font:'var(--text-display-m)'}}>Japon</div>}><div style={{font:'var(--text-body-s)',color:'var(--text-muted)'}}>4 villes · avril 2024</div></BottomSheet></div>
+<div style={{position:'relative',background:'var(--globe-ocean)',borderRadius:'var(--radius-lg)',overflow:'hidden'}}><Dialog title="Supprimer Kyoto ?" actions={<><Button variant="ghost" size="sm">Annuler</Button><Button size="sm">Supprimer</Button></>}>Les photos et notes seront supprimées.</Dialog></div>
+<div style={{display:'flex',flexDirection:'column',justifyContent:'flex-end',gap:10}}><Toast icon="check" message="Portugal marqué comme visité" action="Annuler"/><Toast icon="bookmark" message="Ajouté à vos envies"/></div>
+</div>;}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script></body></html>

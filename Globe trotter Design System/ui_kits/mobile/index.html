@@ -1,0 +1,58 @@
+<!-- @dsCard group="App mobile" viewport="1000x900" name="Globe trotter — iOS" subtitle="Globe, fiche pays, carnet, envies" -->
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Globe trotter — App mobile</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script><script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="../../_ds_bundle.js"></script><script src="data.js"></script><script src="countries.js"></script><script src="regions-loader.js"></script>
+<style>html,body{margin:0;min-height:100%;background:#E9E5DC;font-family:var(--font-sans);color:var(--text-primary)}*{box-sizing:border-box}a{color:var(--accent)}a:hover{color:var(--accent-hover)}#root{display:flex;justify-content:center;padding:12px 0}</style></head>
+<body><div id="root"></div>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="GlobeScreen.jsx"></script><script type="text/babel" src="PlaceSheet.jsx"></script><script type="text/babel" src="NoteScreen.jsx"></script><script type="text/babel" src="ListScreens.jsx"></script>
+<script type="text/babel">
+const { TabBar, Toast } = window.GlobeTrotterDesignSystem_93b564;
+function App(){
+  const D=window.GT_DATA;
+  const [tab,setTab]=React.useState('globe');
+  const [visited,setVisited]=React.useState(D.visited);
+  const [wish,setWish]=React.useState(D.wish);
+  const [filters,setFilters]=React.useState({visited:true,wish:true,unexplored:true});
+  const [level,setLevel]=React.useState('Pays');
+  const [selected,setSelected]=React.useState(null);
+  const [focus,setFocus]=React.useState(null);
+  const [note,setNote]=React.useState(null);
+  const [toast,setToast]=React.useState(null);
+  const [regionStatus,setRegionStatus]=React.useState(D.regionStatus);
+  const [prefs,setPrefs]=React.useState({photos:true,rotate:false});
+  const tRef=React.useRef();
+  const flash=(message,undo)=>{setToast({message,undo});clearTimeout(tRef.current);tRef.current=setTimeout(()=>setToast(null),3200);};
+  const BIG=[840,124,36,76,643,32,156,356];
+  const select=(c,keep)=>{setSelected(c);if(c&&!keep)setFocus({fit:c.id,t:Date.now()});};
+  const app={regionStatus,selectRegion:r=>select({id:r.country,name:D.names[r.country]||window.GT_NAMES_FR[r.country],centroid:r.centroid,region:{name:r.name}},true),
+    markRegion:(id,name,to)=>{const prev=regionStatus;const cur=regionStatus[id]||{visited:[],wish:[]};const n={visited:cur.visited.filter(x=>x!==name),wish:cur.wish.filter(x=>x!==name)};if(to==='visited')n.visited.push(name);if(to==='wish')n.wish.push(name);setRegionStatus({...regionStatus,[id]:n});if(to==='visited'&&!visited.includes(id)){setVisited([...visited,id]);setWish(wish.filter(x=>x!==id));}flash(to==='visited'?name+' marquée comme visitée':to==='wish'?name+' ajoutée à vos envies':name+' retirée de vos envies',()=>setRegionStatus(prev));},
+    visited,wish,filters,setFilters,level,setLevel,selected,select,focus,setFocus,note,prefs,setPrefs,
+    markVisited:(id,name)=>{const pv=visited,pw=wish;setVisited([...visited,id]);setWish(wish.filter(x=>x!==id));flash(name+' marqué comme visité',()=>{setVisited(pv);setWish(pw);});},
+    toggleWish:(id,name)=>{const pw=wish;const on=wish.includes(id);setWish(on?wish.filter(x=>x!==id):[...wish,id]);flash(on?name+' retiré de vos envies':name+' ajouté à vos envies',()=>setWish(pw));},
+    openNote:n=>setNote(n),closeNote:()=>setNote(null),
+    deletePlace:n=>{setNote(null);flash(n.place+' supprimé');},
+    openPlace:pt=>{const n=D.notes.find(x=>x.place===pt.label);if(n)return setNote(n);const id=Object.keys(D.details).find(k=>(D.details[k].cities||[]).some(c=>c.name===pt.label));const cid=id?+id:pt.country;if(cid)setNote({country:cid,place:pt.label});},
+    showPlace:(id,place)=>{setNote(null);setTab('globe');const c=D.centroids[id]||[0,0];const p=D.photos.find(x=>x.label===place);setSelected({id,name:D.names[id],centroid:c});setFocus(p?{lon:p.lon,lat:p.lat,zoom:6,t:Date.now()}:{fit:id,t:Date.now()});},
+    showOnGlobe:id=>{setTab('globe');const c=D.centroids[id]||[0,0];select({id,name:D.names[id],centroid:c});}};
+  let screen;
+  if(note) screen=<NoteScreen app={app}/>;
+  else if(tab==='globe') screen=<GlobeScreen app={app}/>;
+  else if(tab==='carnet') screen=<CarnetScreen app={app}/>;
+  else if(tab==='envies') screen=<WishScreen app={app}/>;
+  else screen=<ProfileScreen app={app}/>;
+  return <IOSDevice>
+    <div style={{height:874,display:'flex',flexDirection:'column',background:'var(--surface-page)',fontFamily:'var(--font-sans)'}}>
+      <div style={{flex:1,minHeight:0,position:'relative'}}>{screen}
+        {toast&&<div style={{position:'absolute',left:'var(--screen-gutter)',right:'var(--screen-gutter)',bottom:16,zIndex:30}}><Toast icon="check" message={toast.message} action={toast.undo?'Annuler':null} onAction={()=>{toast.undo();setToast(null);}}/></div>}
+      </div>
+      {!note&&<div style={{paddingBottom:26,background:'var(--surface-raised)',position:'relative',zIndex:25}}><TabBar value={tab} onChange={t=>{setTab(t);}} items={[{id:'globe',label:'Globe',icon:'globe'},{id:'carnet',label:'Carnet',icon:'notebook-pen'},{id:'envies',label:'Envies',icon:'bookmark'},{id:'profil',label:'Profil',icon:'user-round'}]}/></div>}
+    </div>
+  </IOSDevice>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script></body></html>

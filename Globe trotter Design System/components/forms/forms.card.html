@@ -1,0 +1,16 @@
+<!-- @dsCard group="Components" viewport="700x340" name="Formulaires" subtitle="Input, SegmentedControl, Switch, Checkbox" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-sans)}*{box-sizing:border-box}.r{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.c{display:flex;flex-direction:column;gap:14px;padding:24px}.l{font:var(--text-caption);color:var(--text-muted);width:84px;flex-shrink:0}</style></head>
+<body><div id="root"></div><script type="text/babel">
+const { Input, SegmentedControl, Switch, Checkbox } = window.GlobeTrotterDesignSystem_93b564;
+function App(){const [lv,setLv]=React.useState('Pays');const [sw,setSw]=React.useState(true);const [c1,setC1]=React.useState(true);const [c2,setC2]=React.useState(false);
+return <div className="c" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
+<div style={{display:'flex',flexDirection:'column',gap:14}}><Input variant="search" icon="search" placeholder="Rechercher un lieu"/><Input label="Titre" defaultValue="Kyoto au printemps"/><Input label="Note" multiline rows={3} placeholder="Ce que vous voulez retenir…"/></div>
+<div style={{display:'flex',flexDirection:'column',gap:8}}><SegmentedControl options={['Pays','Régions','Villes']} value={lv} onChange={setLv}/><Switch label="Photos sur le globe" checked={sw} onChange={setSw}/><Switch label="Rotation automatique" checked={false} disabled/><Checkbox label="Réserver le ryokan" checked={c1} onChange={setC1}/><Checkbox label="Voir le Fushimi Inari" checked={c2} onChange={setC2}/></div>
+</div>;}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script></body></html>

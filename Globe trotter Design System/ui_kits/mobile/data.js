@@ -1,0 +1,43 @@
+window.GT_DATA={
+visited:[250,380,724,620,392,504,840,124,484,604,352,300,704,764,826,276],
+wish:[578,32,554,404,36,360],
+names:{250:'France',380:'Italie',724:'Espagne',620:'Portugal',392:'Japon',504:'Maroc',840:'États-Unis',124:'Canada',484:'Mexique',604:'Pérou',352:'Islande',300:'Grèce',704:'Vietnam',764:'Thaïlande',826:'Royaume-Uni',276:'Allemagne',578:'Norvège',32:'Argentine',554:'Nouvelle-Zélande',404:'Kenya',36:'Australie',360:'Indonésie',156:'Chine',76:'Brésil',356:'Inde',643:'Russie',710:'Afrique du Sud',818:'Égypte',152:'Chili',756:'Suisse'},
+centroids:{250:[2.5,46.6],380:[12.6,42.8],724:[-3.7,40.2],620:[-8.2,39.6],392:[138.3,36.2],504:[-6.9,31.8],840:[-98.6,39.8],124:[-106,56],484:[-102.5,23.6],604:[-75,-9.2],352:[-19,65],300:[22,39],704:[106,16],764:[101,15.8],826:[-2,54],276:[10.4,51.2],578:[8.5,61],32:[-64,-34],554:[172,-41.5],404:[37.9,0.2],36:[134,-25.7],360:[118,-2.5]},
+details:{
+392:{region:'Asie de l’Est',coords:'36.20° N · 138.25° E',date:'Avril 2024',note:'Les cerisiers étaient en fleurs à Kyoto. Retourner à Naoshima, prendre le ferry tôt le matin.',
+ cities:[{name:'Kyoto',meta:'Avril 2024 · 3 notes'},{name:'Tokyo',meta:'Avril 2024 · 1 note'},{name:'Naoshima',meta:'Avril 2024'},{name:'Osaka',meta:'Avril 2024'}],
+ regions:[{name:'Kansai',meta:'3 villes'},{name:'Kantō',meta:'1 ville'},{name:'Hokkaidō',meta:'Épinglé',status:'wish'}],
+ todo:[['Réserver le ryokan à Hakone',true],['Voir le Fushimi Inari à l’aube',true],['Aller à Hokkaidō en hiver',false]]},
+620:{region:'Europe du Sud',coords:'39.40° N · 8.22° O',date:'Septembre 2023',note:'Lisbonne au coucher du soleil depuis le miradouro da Graça. Porto pour le vin et le pont Dom-Luís.',
+ cities:[{name:'Lisbonne',meta:'Sept. 2023 · 2 notes'},{name:'Porto',meta:'Sept. 2023'},{name:'Sintra',meta:'Sept. 2023'}],regions:[{name:'Lisbonne',meta:'2 villes'},{name:'Nord',meta:'1 ville'},{name:'Algarve',meta:'Épinglé',status:'wish'}],todo:[['Prendre le tram 28',true],['Faire la côte de l’Algarve',false]]},
+380:{region:'Europe du Sud',coords:'41.87° N · 12.57° E',date:'Juin 2022',note:'Florence en juin, trop chaud l’après-midi. Partir tôt pour les Offices.',
+ cities:[{name:'Rome',meta:'Juin 2022 · 1 note'},{name:'Florence',meta:'Juin 2022 · 2 notes'},{name:'Sienne',meta:'Juin 2022'}],regions:[{name:'Toscane',meta:'2 villes'},{name:'Latium',meta:'1 ville'},{name:'Sicile',meta:'Épinglé',status:'wish'}],todo:[['Dîner à Trastevere',true]]},
+578:{region:'Europe du Nord',coords:'60.47° N · 8.47° E',note:'Les fjords en été, puis les Lofoten. Prévoir 10 jours.',cities:[{name:'Bergen',meta:'Épinglé',status:'wish'},{name:'Lofoten',meta:'Épinglé',status:'wish'}],regions:[],todo:[['Trouver un vol pour Bergen',false]]},
+554:{region:'Océanie',coords:'40.90° S · 174.89° E',note:'Île du Sud en van.',cities:[{name:'Queenstown',meta:'Épinglé',status:'wish'}],regions:[],todo:[]}
+},
+photos:[{lon:135.77,lat:35.01,label:'Kyoto',country:392},{lon:139.69,lat:35.68,label:'Tokyo',country:392},{lon:-9.14,lat:38.72,label:'Lisbonne',country:620},{lon:-8.61,lat:41.15,label:'Porto',country:620},{lon:12.5,lat:41.9,label:'Rome',country:380},{lon:11.25,lat:43.77,label:'Florence',country:380},{lon:2.35,lat:48.86,label:'Paris',country:250},{lon:-7.99,lat:31.63,label:'Marrakech',country:504},{lon:-21.9,lat:64.15,label:'Reykjavik',country:352},{lon:-71.97,lat:-13.52,label:'Cusco',country:604},{lon:-73.98,lat:40.75,label:'New York',country:840},{lon:105.85,lat:21.03,label:'Hanoï',country:704}],
+pins:[{lon:5.32,lat:60.39,label:'Bergen',country:578},{lon:168.66,lat:-45.03,label:'Queenstown',country:554},{lon:-58.38,lat:-34.6,label:'Buenos Aires',country:32},{lon:36.82,lat:-1.29,label:'Nairobi',country:404}],
+regionFiles:{250:'FRA',380:'ITA',724:'ESP',620:'PRT',392:'JPN',504:'MAR',840:'USA',124:'CAN',484:'MEX',604:'PER',352:'ISL',300:'GRC',704:'VNM',764:'THA',826:'GBR',276:'DEU',578:'NOR',32:'ARG',554:'NZL',404:'KEN',36:'AUS',360:'IDN'},
+regionStatus:{
+392:{visited:['Kyoto','Tokyo','Kagawa','Osaka'],wish:['Hokkaido']},
+250:{visited:['Île-de-France','Bretagne',"Provence-Alpes-Côte d'Azur",'Auvergne-Rhône-Alpes','Occitanie','Nouvelle-Aquitaine'],wish:['Corse']},
+380:{visited:['Lazio','Toscana'],wish:['Sicilia']},
+620:{visited:['Lisboa','Porto'],wish:['Faro']},
+724:{visited:['Cataluña/Catalunya','Comunidad de Madrid','Andalucía'],wish:['Illes Balears']},
+840:{visited:['New York','California','Massachusetts'],wish:['Alaska']},
+124:{visited:['Quebec','British Columbia'],wish:['Yukon']},
+504:{visited:['Marrakech-Safi','Fez-Meknes'],wish:[]},
+352:{visited:['Capital','Southern'],wish:['Westfjords']},
+484:{visited:['Yucatan','Quintana Roo'],wish:['Oaxaca']},
+604:{visited:['Cusco','Lima'],wish:['Arequipa']},
+300:{visited:['Attica','Egean'],wish:['Crete']},
+704:{visited:['Hà Nội','Ho Chi Minh'],wish:[]},
+764:{visited:['Bangkok','Chiang Mai'],wish:[]},
+826:{visited:['England','Scotland'],wish:[]},
+276:{visited:['Berlin','Bayern'],wish:[]},
+578:{visited:[],wish:['Vestland','Nordland']},
+554:{visited:[],wish:['Otago','Canterbury']},
+36:{visited:[],wish:['Victoria','Tasmania']}
+},
+notes:[{country:392,place:'Kyoto',date:'12 avril 2024'},{country:392,place:'Tokyo',date:'8 avril 2024'},{country:620,place:'Lisbonne',date:'21 sept. 2023'},{country:380,place:'Florence',date:'14 juin 2022'},{country:380,place:'Rome',date:'10 juin 2022'}]
+};
