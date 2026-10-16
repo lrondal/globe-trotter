@@ -1,0 +1,17 @@
+[project]
+name = "globe-trotter"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Luka-Rondal", email = "luka.rondal@epfedu.fr" }
+]
+requires-python = ">=3.14"
+dependencies = []
+
+[project.scripts]
+globe-trotter = "globe_trotter:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
