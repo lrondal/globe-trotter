@@ -12,7 +12,7 @@ Globe trotter is a mobile app (iOS first, light theme) for keeping a record of t
 - `components/`: React primitives (see below)
 - `ui_kits/mobile/`: interactive iOS click-through (`index.html`)
 - `explorations/`: the three original direction studies (for reference)
-- `thumbnail.html`, `SKILL.md`
+- `SKILL.md`
 
 ## Components
 - **actions/**: Button, IconButton
