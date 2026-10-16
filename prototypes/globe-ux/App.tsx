@@ -4,14 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Canvas, Circle, Group, Path, type SkPath } from '@shopify/react-native-skia';
-import {
-  GestureDetector,
-  GestureHandlerRootView,
-  usePanGesture,
-  usePinchGesture,
-  useSimultaneousGestures,
-  useTapGesture,
-} from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import {
   baseRadius, buildPaths, fitZoom, graticulePath, hitTest, loadRegions, loadWorld, makeCull, makeProjection,
   type BuildStats, type Renderer, type Shape, type View as GView,
@@ -221,34 +214,32 @@ export default function App() {
     else setSelected(null);
   };
 
-  const pan = usePanGesture({
-    runOnJS: true,
-    minDistance: 4,
-    onBegin: () => { S.fly = null; S.vel = null; },
-    onActivate: () => { S.panning = true; },
-    onUpdate: (e) => {
+  const pan = Gesture.Pan()
+    .runOnJS(true)
+    .minDistance(4)
+    .onBegin(() => { S.fly = null; S.vel = null; })
+    .onStart(() => { S.panning = true; })
+    .onChange((e) => {
       if (S.pinching) return;
       const f = 75 / (baseRadius(live.current.size.W, live.current.size.H) * S.view.k);
       S.view.lam += e.changeX * f;
       S.view.phi = Math.max(-85, Math.min(85, S.view.phi - e.changeY * f));
       S.dirty = true;
-    },
-    onDeactivate: (e) => {
+    })
+    .onEnd((e) => {
       S.panning = false;
       S.dirty = true;
       if (!live.current.settings.inertia || S.pinching) return;
       const f = 75 / (baseRadius(live.current.size.W, live.current.size.H) * S.view.k);
       S.vel = { lam: e.velocityX * f, phi: -e.velocityY * f };
-    },
-  });
-  const pinch = usePinchGesture({
-    runOnJS: true,
-    onActivate: () => { S.pinching = true; S.fly = null; S.vel = null; S.pinchStartK = S.view.k; },
-    onUpdate: (e) => { S.view.k = Math.max(MIN_K, Math.min(MAX_K, S.pinchStartK * e.scale)); S.dirty = true; },
-    onDeactivate: () => { S.pinching = false; S.dirty = true; },
-  });
-  const tap = useTapGesture({ runOnJS: true, maxDistance: 10, onActivate: (e) => onTap(e.x, e.y) });
-  const gesture = useSimultaneousGestures(pan, pinch, tap);
+    });
+  const pinch = Gesture.Pinch()
+    .runOnJS(true)
+    .onStart(() => { S.pinching = true; S.fly = null; S.vel = null; S.pinchStartK = S.view.k; })
+    .onUpdate((e) => { S.view.k = Math.max(MIN_K, Math.min(MAX_K, S.pinchStartK * e.scale)); S.dirty = true; })
+    .onEnd(() => { S.pinching = false; S.dirty = true; });
+  const tap = Gesture.Tap().runOnJS(true).maxDistance(10).onStart((e) => onTap(e.x, e.y));
+  const gesture = Gesture.Simultaneous(pan, pinch, tap);
 
   const zoomBy = (m: number) => flyTo({ ...S.view, k: Math.max(MIN_K, Math.min(MAX_K, S.view.k * m)) });
   const sel = selected;
