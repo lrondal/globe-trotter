@@ -1,5 +1,7 @@
 # Globe trotter
 
+[![CI](https://github.com/lrondal/globe-trotter/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/lrondal/globe-trotter/actions/workflows/ci.yml?query=branch%3Amaster)
+
 A personal iPhone app to keep track of where you've been and where you want to go, centred on a 3D globe you spin and zoom with your finger.
 
 Every Country, Region and City is a **Place** you can mark **Visited** or **Wish**, and annotate with a Note, Todos and Photos. Countries and their Regions are coloured by their Status, so your travels show up at a glance. The interface is in French.
