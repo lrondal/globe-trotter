@@ -1,15 +1,5 @@
-import { StyleSheet, View } from 'react-native';
+import { Globe } from '@/globe/Globe';
 
-import { colors } from '@/theme/tokens';
-
-// The globe arrives in its own slice; for now the tab is the bare paper page.
 export default function GlobeScreen() {
-  return <View style={styles.screen} />;
+  return <Globe />;
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.surfacePage,
-  },
-});

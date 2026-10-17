@@ -141,3 +141,11 @@ export const pressFeedback = {
   button: { scale: 0.98, duration: duration.fast, easing: easing.out },
   iconButton: { scale: 0.94, duration: duration.fast, easing: easing.out },
 } as const;
+
+/** Elevation, as `boxShadow` style values. */
+export const shadow = {
+  1: '0 1px 0 rgba(27,26,23,.04),0 1px 2px rgba(27,26,23,.06)',
+  2: '0 6px 20px -6px rgba(27,26,23,.16),0 1px 2px rgba(27,26,23,.06)',
+  sheet: '0 -10px 32px -10px rgba(27,26,23,.20)',
+  pin: '0 2px 6px rgba(27,26,23,.28)',
+} as const;

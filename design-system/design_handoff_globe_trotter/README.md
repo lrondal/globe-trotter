@@ -20,7 +20,7 @@ A native SwiftUI build is also valid. The tokens and specs below are platform-ne
 Frame: iPhone 402×874pt. Screen gutter 20. Tab bar at the bottom (Globe · Carnet · Envies · Profil), with a 26pt home-indicator inset below it.
 
 ### 1. Globe (`ui_kits/mobile/GlobeScreen.jsx`)
-- **Globe**: full-bleed below a 96pt top band. Diameter = 0.9 × min(width, height). Orthographic projection with a 10° graticule.
+- **Globe**: full-bleed below a 96pt top band. Diameter = 0.98 × min(width, height). Orthographic projection with a 10° graticule.
   - Ocean `#ECE7DC`, land `#DCD5C6`, borders 0.5px `#F4F1EA`, rim 1px `#D3CCBD`.
   - Visited `#C4572E`, wish `#E9C48F`. Selected country: 1.5px `#1B1A17` outline, drawn on top.
 - **Search**: pill input at top 58, full width minus gutters. 44pt tall, `#FBF9F4` fill, 1px `#D3CCBD` border, shadow-1, leading `search` icon. Placeholder "Rechercher un pays, une ville".
