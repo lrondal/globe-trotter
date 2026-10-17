@@ -129,6 +129,8 @@ export const duration = {
   fast: 120,
   base: 220,
   slow: 420,
+  /** The globe flying to a Place. */
+  flight: 900,
 } as const;
 
 /** Cubic-bezier control points (x1, y1, x2, y2). */

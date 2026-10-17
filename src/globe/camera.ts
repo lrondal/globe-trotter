@@ -13,7 +13,7 @@ function degreesPerPoint(view: View, radius: number) {
   return 75 / (radius * view.zoom);
 }
 
-function clampLat(lat: number) {
+export function clampLat(lat: number) {
   'worklet';
   return Math.max(-MAX_LAT, Math.min(MAX_LAT, lat));
 }

@@ -50,7 +50,7 @@ import {
 
 const zoomTiming = { duration: duration.slow, easing: Easing.bezier(...easing.out) };
 /** The flight to a point, as long as the flight to a Country (#1 R4). */
-const flightTiming = { duration: 900, easing: Easing.bezier(...easing.inOut) };
+const flightTiming = { duration: duration.flight, easing: Easing.bezier(...easing.inOut) };
 /** The location dot: a sage dot with a paper ring, in points. */
 const LOCATION_RADIUS = 6;
 const LOCATION_RING = 2;
@@ -78,7 +78,7 @@ export function Globe({ start, position, onRecenter, children }: Props) {
   const pinching = useSharedValue(false);
   const pinchedThisTouch = useSharedValue(false);
   const pinchStartZoom = useSharedValue(start.zoom);
-  const here = useSharedValue(position);
+  const shownPosition = useSharedValue(position);
 
   const [detail, setDetail] = useState<Detail>('standard');
   const [measures, setMeasures] = useState<Measures | null>(null);
@@ -116,12 +116,12 @@ export function Globe({ start, position, onRecenter, children }: Props) {
   const r = useDerivedValue(() => globeRadius(viewport.value) * zoom.value);
 
   useEffect(() => {
-    here.value = position;
-  }, [here, position]);
+    shownPosition.value = position;
+  }, [shownPosition, position]);
   const dot = useDerivedValue(() => {
-    const point = here.value;
+    const point = shownPosition.value;
     if (!point || viewport.value.width === 0) return { x: 0, y: 0, visible: false };
-    return projectPoint(frameFor(view(), viewport.value), point.lon, point.lat);
+    return projectPoint(frameFor(view(), viewport.value), point);
   });
   const dotX = useDerivedValue(() => dot.value.x);
   const dotY = useDerivedValue(() => dot.value.y);

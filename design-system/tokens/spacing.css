@@ -8,6 +8,6 @@
 --shadow-sheet:0 -10px 32px -10px rgba(27,26,23,.20);
 --shadow-pin:0 2px 6px rgba(27,26,23,.28);
 --ease-out:cubic-bezier(.2,.7,.2,1);/* @kind other */--ease-in-out:cubic-bezier(.6,0,.3,1);/* @kind other */
---dur-fast:120ms;/* @kind other */--dur-base:220ms;/* @kind other */--dur-slow:420ms;/* @kind other */
+--dur-fast:120ms;/* @kind other */--dur-base:220ms;/* @kind other */--dur-slow:420ms;/* @kind other */--dur-flight:900ms;/* @kind other */
 --z-globe:0;/* @kind other */--z-overlay:10;/* @kind other */--z-sheet:20;/* @kind other */--z-toast:30;/* @kind other */
 }

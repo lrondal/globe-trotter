@@ -9,7 +9,7 @@ import type { Point, View } from '@/globe/camera';
 
 import { launchView, type Permission } from './launch';
 
-/** The splash screen waits at most this long for the last known position, in milliseconds. */
+/** The splash screen waits at most this long for each location answer, in milliseconds. */
 const LAST_KNOWN_WAIT = 400;
 
 type LocationState = {
@@ -33,11 +33,13 @@ const toPermission = ({ granted, canAskAgain }: Location.LocationPermissionRespo
   canAskAgain,
 });
 
-function lastKnown(): Promise<Point | null> {
+/** The promise's value, or null if it fails or takes longer than LAST_KNOWN_WAIT. */
+function soon<T>(promise: Promise<T>): Promise<T | null> {
   const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), LAST_KNOWN_WAIT));
-  const last = Location.getLastKnownPositionAsync().then(toPoint, () => null);
-  return Promise.race([last, timeout]);
+  return Promise.race([promise.catch(() => null), timeout]);
 }
+
+const lastKnown = () => soon(Location.getLastKnownPositionAsync().then(toPoint));
 
 async function current(): Promise<Point | null> {
   try {
@@ -70,7 +72,8 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     (async () => {
-      const response = await Location.getForegroundPermissionsAsync().catch(() => null);
+      // Each step is bounded, so the splash screen never waits on a stuck location service.
+      const response = await soon(Location.getForegroundPermissionsAsync());
       const last = response?.granted ? await lastKnown() : null;
       if (!alive) return;
       setLaunch(launchView(last));

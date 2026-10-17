@@ -38,6 +38,8 @@ export function Toast({ message, action, onAction, onHide }: Props) {
             onAction?.();
             onHide();
           }}
+          // 32 pt tall as drawn, 44 pt to the finger.
+          hitSlop={6}
           style={styles.action}>
           <Text style={styles.actionText}>{action}</Text>
         </Pressable>
