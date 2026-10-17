@@ -1,5 +1,7 @@
 // Globe camera: the view of the globe and how gestures move it. Pure logic, no rendering.
 // Every function is a worklet so gestures can run it on the UI thread.
+import type { Footprint } from '../atlas/countries.ts';
+import { globeCenterY, globeRadius, TOP_BAND, type Viewport } from './projection.ts';
 
 /** The point of the globe facing the user (degrees) and the zoom (1 = whole globe). */
 export type View = { lon: number; lat: number; zoom: number };
@@ -94,4 +96,53 @@ export type Point = { lon: number; lat: number };
 export function centerOn(view: View, point: Point): View {
   'worklet';
   return { lon: view.lon + wrapLon(point.lon - view.lon), lat: clampLat(point.lat), zoom: 1 };
+}
+
+/**
+ * A View plus how far, in points, the globe's centre is lifted above its resting place on
+ * screen, so that a Place framed at the centre shows above the sheet.
+ */
+export type Shot = { view: View; lift: number };
+
+/** Share of the band above the sheet that a framed Place fills. */
+const FIT_FILL = 0.78;
+
+/**
+ * The Shot that frames a Place in the band between the top band and the sheet, whose top
+ * edge is at `sheetTop` points: centred in it, and filling 78% of it.
+ */
+export function fit(place: Footprint, viewport: Viewport, sheetTop: number): Shot {
+  'worklet';
+  const r = globeRadius(viewport);
+  const band = sheetTop - TOP_BAND;
+  const fill = Math.min(viewport.width / (place.width * r), band / (place.height * r));
+  const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, FIT_FILL * fill));
+  const lat = clampLat(place.lat);
+  // Beyond the tilt limit the Place sits above the centre: lift the globe further to compensate.
+  const above = r * zoom * Math.sin(((place.lat - lat) * Math.PI) / 180);
+  const lift = globeCenterY(viewport) - above - (TOP_BAND + sheetTop) / 2;
+  return { view: { lon: place.lon, lat, zoom }, lift };
+}
+
+export const FLIGHT_MS = 900;
+
+function cubicInOut(t: number) {
+  'worklet';
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+/** The Shot `elapsed` milliseconds into the flight from `from` to `to`. */
+export function fly(from: Shot, to: Shot, elapsed: number): { shot: Shot; done: boolean } {
+  'worklet';
+  if (elapsed >= FLIGHT_MS) return { shot: to, done: true };
+  const e = cubicInOut(Math.max(0, elapsed) / FLIGHT_MS);
+  // The short way round: the longitude difference brought into [-180, 180).
+  const dLon = wrapLon(to.view.lon - from.view.lon);
+  const view = {
+    lon: wrapLon(from.view.lon + dLon * e),
+    lat: from.view.lat + (to.view.lat - from.view.lat) * e,
+    // Geometric, so the zoom feels even whether it doubles at 1× or at 10×.
+    zoom: from.view.zoom * Math.pow(to.view.zoom / from.view.zoom, e),
+  };
+  return { shot: { view, lift: from.lift + (to.lift - from.lift) * e }, done: false };
 }

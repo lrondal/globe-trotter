@@ -45,7 +45,7 @@ export function globeCenterY(viewport: Viewport) {
 export const DETAIL = { fine: 0.1, standard: 0.25, light: 0.6 } as const;
 export type Detail = keyof typeof DETAIL;
 
-type Frame = {
+export type Frame = {
   ex: number; ey: number; ez: number;
   nx: number; ny: number; nz: number;
   fx: number; fy: number; fz: number;
@@ -57,7 +57,8 @@ type Frame = {
   height: number;
 };
 
-export function frameFor(view: View, viewport: Viewport): Frame {
+/** `lift` raises the globe's centre that many points above its resting place (see Shot). */
+export function frameFor(view: View, viewport: Viewport, lift = 0): Frame {
   'worklet';
   const λ = (view.lon * Math.PI) / 180;
   const φ = (view.lat * Math.PI) / 180;
@@ -68,7 +69,7 @@ export function frameFor(view: View, viewport: Viewport): Frame {
     fx: cosφ * cosλ, fy: cosφ * sinλ, fz: sinφ,
     s: globeRadius(viewport) * view.zoom,
     cx: viewport.width / 2,
-    cy: globeCenterY(viewport),
+    cy: globeCenterY(viewport) - lift,
     width: viewport.width,
     height: viewport.height,
   };
