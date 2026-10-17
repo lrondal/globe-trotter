@@ -2,7 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { coast, drag, pinch, release, zoomIn, zoomOut, type Spin, type View } from './camera.ts';
+import { coast, drag, fit, fly, pinch, release, zoomIn, zoomOut, type Shot, type Spin, type View } from './camera.ts';
+import { frameFor, TOP_BAND } from './projection.ts';
 
 // A 402 pt wide iPhone: the globe's radius at zoom 1 is 0.49 × 402.
 const RADIUS = 196.98;
@@ -74,4 +75,89 @@ test('a fling never tilts the view past 60° S', () => {
     lowest = Math.min(lowest, view.lat);
   }
   assert.equal(lowest, -60);
+});
+
+// The Globe screen of a 402 × 874 pt iPhone above its tab bar, with the sheet half open.
+const screen = { width: 402, height: 790 };
+const SHEET_TOP = 380;
+const BAND = SHEET_TOP - TOP_BAND;
+
+/** Where a point (degrees) lands on screen for a Shot. */
+function onScreen(shot: Shot, lon: number, lat: number) {
+  const f = frameFor(shot.view, screen, shot.lift);
+  const [λ, φ] = [(lon * Math.PI) / 180, (lat * Math.PI) / 180];
+  const p = [Math.cos(φ) * Math.cos(λ), Math.cos(φ) * Math.sin(λ), Math.sin(φ)];
+  return {
+    x: f.cx + f.s * (p[0] * f.ex + p[1] * f.ey + p[2] * f.ez),
+    y: f.cy - f.s * (p[0] * f.nx + p[1] * f.ny + p[2] * f.nz),
+    s: f.s,
+  };
+}
+
+test('framing a Place centres it in the band above the sheet and fills 78% of it', () => {
+  // Japan: taller than wide once the band is 284 × 402 pt.
+  const japan = { lon: 138, lat: 36, width: 0.35, height: 0.4 };
+  const shot = fit(japan, screen, SHEET_TOP);
+  const centre = onScreen(shot, japan.lon, japan.lat);
+  assert.ok(Math.abs(centre.x - 201) < 1e-6, `x ${centre.x}`);
+  assert.ok(Math.abs(centre.y - (TOP_BAND + SHEET_TOP) / 2) < 1e-6, `y ${centre.y}`);
+  const [top, bottom] = [centre.y - (centre.s * japan.height) / 2, centre.y + (centre.s * japan.height) / 2];
+  assert.ok(top > TOP_BAND && bottom < SHEET_TOP, `from ${top} to ${bottom}`);
+  assert.ok(Math.abs((bottom - top) / BAND - 0.78) < 1e-6, `fills ${(bottom - top) / BAND}`);
+});
+
+test('a wide Place is framed on its width', () => {
+  const chile = { lon: -71, lat: -36, width: 1.2, height: 0.2 };
+  const centre = onScreen(fit(chile, screen, SHEET_TOP), chile.lon, chile.lat);
+  assert.ok(Math.abs((centre.s * chile.width) / screen.width - 0.78) < 1e-6);
+});
+
+test('a Place beyond the 60° tilt limit is still framed above the sheet', () => {
+  const greenland = { lon: -41, lat: 72, width: 0.3, height: 0.35 };
+  const shot = fit(greenland, screen, SHEET_TOP);
+  assert.equal(shot.view.lat, 60);
+  const centre = onScreen(shot, greenland.lon, greenland.lat);
+  assert.ok(Math.abs(centre.y - (TOP_BAND + SHEET_TOP) / 2) < 1e-6, `y ${centre.y}`);
+});
+
+test('framing never zooms out past 0.8× nor in past 24×', () => {
+  assert.equal(fit({ lon: 100, lat: 60, width: 3, height: 3 }, screen, SHEET_TOP).view.zoom, 0.8);
+  assert.equal(fit({ lon: 7.4, lat: 43.7, width: 1e-4, height: 1e-4 }, screen, SHEET_TOP).view.zoom, 24);
+});
+
+/** Flies from one Shot to another at 60 fps; returns every Shot drawn and the time taken. */
+function flyAll(from: Shot, to: Shot) {
+  const shots: Shot[] = [];
+  let elapsed = 0;
+  for (;;) {
+    elapsed += 1000 / 60;
+    const step = fly(from, to, elapsed);
+    shots.push(step.shot);
+    if (step.done) return { shots, elapsed };
+  }
+}
+
+test('the flight lands on its target in 900 ms', () => {
+  const to: Shot = { view: { lon: 138, lat: 36, zoom: 5 }, lift: 120 };
+  const { shots, elapsed } = flyAll({ view: europe, lift: 0 }, to);
+  assert.ok(elapsed >= 900 && elapsed < 900 + 1000 / 60, `landed after ${elapsed} ms`);
+  assert.deepEqual(shots.at(-1), to);
+});
+
+test('the flight takes the shortest way in longitude, across the antimeridian', () => {
+  // From Japan to Hawaii: 60° east across the antimeridian, not 300° west over Europe.
+  const japan: Shot = { view: { lon: 140, lat: 20, zoom: 1 }, lift: 0 };
+  const hawaii: Shot = { view: { lon: -160, lat: 20, zoom: 1 }, lift: 0 };
+  for (const { view } of flyAll(japan, hawaii).shots) {
+    assert.ok(view.lon >= 140 || view.lon <= -160, `passed over ${view.lon}°`);
+  }
+  const halfway = fly(japan, hawaii, 450).shot.view.lon;
+  assert.ok(Math.abs(Math.abs(halfway) - 170) < 1e-9, `halfway at ${halfway}°`);
+});
+
+test('the flight eases in and out', () => {
+  const { shots } = flyAll({ view: { lon: 0, lat: 0, zoom: 1 }, lift: 0 }, { view: { lon: 90, lat: 0, zoom: 1 }, lift: 0 });
+  const steps = shots.map((s, i) => s.view.lon - (i === 0 ? 0 : shots[i - 1].view.lon));
+  const middle = steps[Math.floor(steps.length / 2)];
+  assert.ok(steps[0] < middle / 5 && steps.at(-1)! < middle / 5, `steps ${steps[0]}, ${middle}, ${steps.at(-1)}`);
 });
