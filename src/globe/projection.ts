@@ -10,7 +10,7 @@
 // point P of the unit sphere is drawn at (cx + s P·e, cy - s P·n), and faces the user when
 // P·f >= 0.
 import type { CountryGeometry } from '../atlas/countries.ts';
-import type { View } from './camera.ts';
+import type { Point, View } from './camera.ts';
 
 /** What the projection draws into: a Skia SkPathBuilder fits. */
 export type PathSink = {
@@ -72,6 +72,21 @@ export function frameFor(view: View, viewport: Viewport, lift = 0): Frame {
     cy: globeCenterY(viewport) - lift,
     width: viewport.width,
     height: viewport.height,
+  };
+}
+
+/** Where a point of the globe is drawn, and whether it faces the user. */
+export function projectPoint(frame: Frame, point: Point) {
+  'worklet';
+  const λ = (point.lon * Math.PI) / 180;
+  const φ = (point.lat * Math.PI) / 180;
+  const px = Math.cos(φ) * Math.cos(λ);
+  const py = Math.cos(φ) * Math.sin(λ);
+  const pz = Math.sin(φ);
+  return {
+    x: frame.cx + frame.s * (px * frame.ex + py * frame.ey + pz * frame.ez),
+    y: frame.cy - frame.s * (px * frame.nx + py * frame.ny + pz * frame.nz),
+    visible: px * frame.fx + py * frame.fy + pz * frame.fz >= 0,
   };
 }
 

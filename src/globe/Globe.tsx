@@ -5,9 +5,9 @@
 // are re-projected from the geometry the Atlas prepared once. React only renders on layout
 // and on button presses: selecting a Country is told to the parent, and the globe is memoised
 // so the sheet re-rendering never rebuilds its gestures and paths mid-flight.
-import { Canvas, Circle, Path, usePathValue } from '@shopify/react-native-skia';
-import { Minus, Plus } from 'lucide-react-native';
-import { memo, useImperativeHandle, useState, type Ref } from 'react';
+import { Canvas, Circle, Group, Path, usePathValue } from '@shopify/react-native-skia';
+import { LocateFixed, Minus, Plus } from 'lucide-react-native';
+import { memo, useEffect, useImperativeHandle, useState, type Ref } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -29,6 +29,7 @@ import { detentHeight, sheetTiming } from '@/sheet/detents';
 import { colors, duration, easing, fonts, layout, radius } from '@/theme/tokens';
 
 import {
+  centerOn,
   coast,
   drag,
   fit,
@@ -37,6 +38,7 @@ import {
   release,
   zoomIn,
   zoomOut,
+  type Point,
   type Shot,
   type Spin,
   type View as GlobeView,
@@ -48,15 +50,17 @@ import {
   frameFor,
   globeCenterY,
   globeRadius,
+  projectPoint,
   traceCountries,
   traceGraticule,
   type Detail,
   type Viewport,
 } from './projection';
 
-/** Centred on Europe until the launch position arrives (#16). */
-const START: GlobeView = { lon: 10, lat: 45, zoom: 1 };
 const zoomTiming = { duration: duration.slow, easing: Easing.bezier(...easing.out) };
+/** The location dot: a 6 pt sage dot with a thin paper ring, in points. */
+const LOCATION_RADIUS = 3;
+const LOCATION_RING = 1.5;
 /** Measures are reported to the panel this often, in milliseconds. */
 const MEASURE_EVERY = 500;
 
@@ -66,25 +70,32 @@ export type GlobeHandle = {
 };
 
 type Props = {
+  /** The view the globe opens on. Read once: later changes never move the globe. */
+  start: GlobeView;
+  /** The user's position, drawn as the location dot; null hides it. */
+  position: Point | null;
+  /** The recentre button: resolves with the point to fly to, or null to stay put. */
+  onRecenter: () => Promise<Point | null>;
   /** Height of the Place sheet showing (see PlaceSheet), opened and closed by the globe. */
   sheetHeight: SharedValue<number>;
-  /** Index in the Atlas of the Country tapped, or null when the sea is tapped. */
+  /** Index in the Atlas of the Country tapped, or null when the sea is tapped or the globe recentres. */
   onSelect: (country: number | null) => void;
   ref?: Ref<GlobeHandle>;
 };
 
-export const Globe = memo(function Globe({ sheetHeight, onSelect, ref }: Props) {
+export const Globe = memo(function Globe({ start, position, onRecenter, sheetHeight, onSelect, ref }: Props) {
   const insets = useSafeAreaInsets();
   const viewport = useSharedValue<Viewport>({ width: 0, height: 0 });
-  const lon = useSharedValue(START.lon);
-  const lat = useSharedValue(START.lat);
-  const zoom = useSharedValue(START.zoom);
+  const lon = useSharedValue(start.lon);
+  const lat = useSharedValue(start.lat);
+  const zoom = useSharedValue(start.zoom);
   const lift = useSharedValue(0);
   const spin = useSharedValue<Spin | null>(null);
   const flight = useSharedValue<{ from: Shot; to: Shot; elapsed: number } | null>(null);
   const pinching = useSharedValue(false);
   const pinchedThisTouch = useSharedValue(false);
-  const pinchStartZoom = useSharedValue(START.zoom);
+  const pinchStartZoom = useSharedValue(start.zoom);
+  const shownPosition = useSharedValue(position);
 
   const [detail, setDetail] = useState<Detail>('standard');
   const [measures, setMeasures] = useState<Measures | null>(null);
@@ -135,9 +146,21 @@ export const Globe = memo(function Globe({ sheetHeight, onSelect, ref }: Props) 
     flight.value = null;
     lift.value = withTiming(flying.to.lift, sheetTiming);
   };
+  // Recentring lets go of the selected Country: the whole globe faces the point, sheet closed.
+  const flyTo = (point: Point) => {
+    'worklet';
+    spin.value = null;
+    cancelAnimation(zoom);
+    cancelAnimation(lift);
+    flight.value = { from: { view: view(), lift: lift.value }, to: { view: centerOn(view(), point), lift: 0 }, elapsed: 0 };
+    sheetHeight.value = withTiming(0, sheetTiming);
+    scheduleOnRN(onSelect, null);
+  };
   // On the UI thread, so it cannot interleave with a frame of the flight.
   useImperativeHandle(ref, () => ({ deselect: () => scheduleOnUI(deselect) }), []);
 
+  // The paths may read the camera through frame(): usePathValue notifies its own path,
+  // so it re-runs every frame whatever its callback reads. Derived values do not.
   const land = usePathValue((path) => {
     'worklet';
     if (viewport.value.width === 0) return;
@@ -153,6 +176,21 @@ export const Globe = memo(function Globe({ sheetHeight, onSelect, ref }: Props) 
   const cx = useDerivedValue(() => viewport.value.width / 2);
   const cy = useDerivedValue(() => globeCenterY(viewport.value) - lift.value);
   const r = useDerivedValue(() => globeRadius(viewport.value) * zoom.value);
+
+  useEffect(() => {
+    shownPosition.value = position;
+  }, [shownPosition, position]);
+  // The camera is read here, not through frame(): a derived value only re-runs when a
+  // shared value it reads directly changes, so the dot would stay where the globe opened.
+  const dot = useDerivedValue(() => {
+    const point = shownPosition.value;
+    if (!point || viewport.value.width === 0) return { x: 0, y: 0, visible: false };
+    const camera = { lon: lon.value, lat: lat.value, zoom: zoom.value };
+    return projectPoint(frameFor(camera, viewport.value, lift.value), point);
+  });
+  const dotX = useDerivedValue(() => dot.value.x);
+  const dotY = useDerivedValue(() => dot.value.y);
+  const dotOpacity = useDerivedValue(() => (dot.value.visible ? 1 : 0));
 
   const tap = Gesture.Tap()
     .maxDistance(10)
@@ -252,6 +290,10 @@ export const Globe = memo(function Globe({ sheetHeight, onSelect, ref }: Props) 
   };
   // On the UI thread, like the flight it may interrupt.
   const zoomWith = (step: (v: GlobeView) => GlobeView) => scheduleOnUI(zoomBy, step);
+  const recenter = async () => {
+    const point = await onRecenter();
+    if (point) scheduleOnUI(flyTo, point);
+  };
   // The map buttons rise with the sheet, up to its half height; above that it covers them.
   const mapButtonsStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: -Math.min(sheetHeight.value, detentHeight('half', viewport.value.height)) }],
@@ -270,11 +312,16 @@ export const Globe = memo(function Globe({ sheetHeight, onSelect, ref }: Props) 
           <Path path={graticule} style="stroke" strokeWidth={0.5} color={colors.globeGraticule} />
           <Path path={land} color={colors.globeLand} />
           <Path path={land} style="stroke" strokeWidth={0.5} color={colors.globeStroke} />
+          <Group opacity={dotOpacity}>
+            <Circle cx={dotX} cy={dotY} r={LOCATION_RADIUS + LOCATION_RING} color={colors.paper0} />
+            <Circle cx={dotX} cy={dotY} r={LOCATION_RADIUS} color={colors.globeLocation} />
+          </Group>
           <Circle cx={cx} cy={cy} r={r} style="stroke" strokeWidth={1} color={colors.globeRim} />
         </Canvas>
       </GestureDetector>
 
       <Animated.View style={[styles.mapButtons, mapButtonsStyle]} pointerEvents="box-none">
+        <IconButton icon={LocateFixed} label="Recentrer" onPress={recenter} />
         <IconButton icon={Plus} label="Zoomer" onPress={() => zoomWith(zoomIn)} />
         <IconButton icon={Minus} label="Dézoomer" onPress={() => zoomWith(zoomOut)} />
       </Animated.View>

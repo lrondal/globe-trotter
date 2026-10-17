@@ -15,7 +15,7 @@ function degreesPerPoint(view: View, radius: number) {
   return 75 / (radius * view.zoom);
 }
 
-function clampLat(lat: number) {
+export function clampLat(lat: number) {
   'worklet';
   return Math.max(-MAX_LAT, Math.min(MAX_LAT, lat));
 }
@@ -84,6 +84,18 @@ export function coast(view: View, spin: Spin, dt: number): { view: View; spin: S
   const latSpin = Math.abs(lat) === MAX_LAT ? 0 : spin.lat * decay;
   const lonSpin = spin.lon * decay;
   return { view: next, spin: Math.hypot(lonSpin, latSpin) < SPIN_STOP ? null : { lon: lonSpin, lat: latSpin } };
+}
+
+/** A point of the globe, in degrees. */
+export type Point = { lon: number; lat: number };
+
+/**
+ * The whole globe facing `point`. The longitude is the one nearest the current view's, maybe
+ * outside [-180, 180), so animating towards it turns the globe the short way.
+ */
+export function centerOn(view: View, point: Point): View {
+  'worklet';
+  return { lon: view.lon + wrapLon(point.lon - view.lon), lat: clampLat(point.lat), zoom: 1 };
 }
 
 /**

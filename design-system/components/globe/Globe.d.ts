@@ -14,6 +14,8 @@ export interface GlobeProps {
   wish?: Array<number | string>;
   /** Small ink pins for cities */
   pins?: GlobePoint[];
+  /** The user's position: a sage dot 6pt across with a 1.5pt paper ring, close to a city pin, under the city pins. Never stored. */
+  location?: GlobePoint | null;
   /** Photo markers shown when zoomed in */
   photos?: GlobePhoto[];
   /** Which status layers are colored */
