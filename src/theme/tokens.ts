@@ -59,6 +59,7 @@ export const colors = {
   globeGraticule: '#E0DACD',
   globeRim: palette.paper4,
   globePin: palette.ink1,
+  globeLocation: palette.sage600,
   feedbackSuccess: palette.sage600,
   feedbackSuccessTint: palette.sage100,
   feedbackDanger: palette.brick600,
@@ -128,6 +129,8 @@ export const duration = {
   fast: 120,
   base: 220,
   slow: 420,
+  /** The globe flying to a Place. */
+  flight: 900,
 } as const;
 
 /** Cubic-bezier control points (x1, y1, x2, y2). */

@@ -95,6 +95,68 @@ test('the check catches a worklet calling a worklet defined below it', () => {
   ]);
 });
 
+/**
+ * Every `useDerivedValue` updater that calls a function defined in the component.
+ * Reanimated re-runs a derived value only when a shared value found directly in its
+ * closure changes: shared values read inside a captured function are never tracked.
+ * Skia's `usePathValue` is exempt: it notifies its own path, so it re-runs every frame.
+ */
+function derivedReadsThroughFunction(file: string): string[] {
+  const ast = babel.parseSync(readFileSync(file, 'utf8'), {
+    babelrc: false,
+    configFile: false,
+    filename: file,
+    parserOpts: { plugins: ['typescript', 'jsx'] },
+  });
+  const found: string[] = [];
+  babel.traverse(ast, {
+    CallExpression(path: any) {
+      if (path.node.callee.name !== 'useDerivedValue') return;
+      const updater = path.get('arguments.0');
+      if (!updater.isFunction()) return;
+      updater.traverse({
+        Identifier(id: any) {
+          if (!id.isReferencedIdentifier()) return;
+          const binding = id.scope.getBinding(id.node.name);
+          // Module-level helpers cannot capture the component's shared values.
+          if (!binding || binding.scope.path.isProgram() || binding.path.isDescendant(updater)) return;
+          const declared = binding.path;
+          const isFunction =
+            declared.isFunctionDeclaration() || (declared.isVariableDeclarator() && declared.get('init').isFunction());
+          if (isFunction) found.push(`a derived value reads through ${id.node.name}()`);
+        },
+      });
+    },
+  });
+  return found;
+}
+
+test('no derived value in src/ reads shared values through a function of the component', () => {
+  const files = readdirSync(SRC, { recursive: true, encoding: 'utf8' })
+    .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
+    .map((f) => join(SRC, f))
+    .filter((f) => readFileSync(f, 'utf8').includes('useDerivedValue'));
+  assert.ok(files.length >= 1, 'expected the globe to use derived values');
+  for (const file of files) assert.deepEqual(derivedReadsThroughFunction(file), [], file);
+});
+
+test('the check catches a derived value reading through a function', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'derived-')), 'hidden.tsx');
+  writeFileSync(
+    file,
+    [
+      'function helper(n: number) { return n * 2; }',
+      'export function Dot() {',
+      '  const lon = useSharedValue(0);',
+      "  const view = () => { 'worklet'; return lon.value; };",
+      '  const direct = useDerivedValue(() => helper(lon.value));',
+      '  const hidden = useDerivedValue(() => view() + 1);',
+      '}',
+    ].join('\n'),
+  );
+  assert.deepEqual(derivedReadsThroughFunction(file), ['a derived value reads through view()']);
+});
+
 test('the check catches a worklet using a captured constant in a default parameter', () => {
   const file = join(mkdtempSync(join(tmpdir(), 'worklets-')), 'defaults.ts');
   writeFileSync(

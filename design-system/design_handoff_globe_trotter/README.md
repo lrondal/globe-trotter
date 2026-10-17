@@ -25,8 +25,9 @@ Frame: iPhone 402×874pt. Screen gutter 20. Tab bar at the bottom (Globe · Carn
   - Visited `#C4572E`, wish `#E9C48F`. Selected country: 1.5px `#1B1A17` outline, drawn on top.
 - **Search**: pill input at top 58, full width minus gutters. 44pt tall, `#FBF9F4` fill, 1px `#D3CCBD` border, shadow-1, leading `search` icon. Placeholder "Rechercher un pays, une ville".
 - **Filter chips** (bottom-left, stacked with 8pt gap; hidden when a sheet is open). Each is a 36pt pill with a 10pt dot, label and count: "Visité 16", "À visiter 6", "Non exploré 155". Tapping toggles that color layer. A deselected chip has a hollow dot, transparent background and muted text.
-- **Map buttons** (bottom-right, 10pt gap): 44pt round raised buttons for `locate-fixed` (recentre), `plus` and `minus`. ± zooms ×1.6 relative to the *current* zoom. The column rises above the sheet when one is open.
-- **City pins**: 3.5pt ink dots with a 1.2pt paper ring.
+- **Map buttons** (bottom-right, 10pt gap): 44pt round raised buttons for `locate-fixed` (recentre: flies to the position at zoom 1, or explains how to turn location on), `plus` and `minus`. ± zooms ×1.6 relative to the *current* zoom. The column rises above the sheet when one is open.
+- **City pins**: ink dots 7pt in diameter (radius 3.5) with a 1.2pt paper ring.
+- **Location dot**: the user's approximate position, a sage `#5E7A5A` dot (`--globe-location`) 6pt in diameter with a thin 1.5pt paper ring (9pt overall, close to a city pin), drawn under the city pins. It stays on its geographic position while the globe turns, zooms, coasts or flies, and is hidden on the far side. Never stored or exported.
 - **Photo markers**: round, 1.5pt paper ring, drop shadow. Shown once zoom ≥ 1.9. Diameter = min(38, 16 + 5·zoom). They are only shown on the visible hemisphere.
 - Tapping a pin or photo opens that place's note (screen 3).
 

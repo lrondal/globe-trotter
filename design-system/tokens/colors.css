@@ -9,6 +9,6 @@
 --border-default:var(--paper-line);--border-strong:var(--paper-4);--border-focus:var(--ink-1);
 --accent:var(--terracotta-500);--accent-hover:var(--terracotta-600);--accent-press:var(--terracotta-700);--accent-tint:var(--terracotta-100);
 --state-visited:var(--terracotta-500);--state-visited-tint:var(--terracotta-100);--state-wish:var(--ochre-400);--state-wish-ink:var(--ochre-800);--state-wish-tint:var(--ochre-100);--state-unexplored:var(--paper-3);
---globe-ocean:var(--paper-2);--globe-land:var(--paper-3);--globe-stroke:var(--paper-1);--globe-graticule:#E0DACD;--globe-rim:var(--paper-4);--globe-pin:var(--ink-1);
+--globe-ocean:var(--paper-2);--globe-land:var(--paper-3);--globe-stroke:var(--paper-1);--globe-graticule:#E0DACD;--globe-rim:var(--paper-4);--globe-pin:var(--ink-1);--globe-location:var(--sage-600);
 --feedback-success:var(--sage-600);--feedback-success-tint:var(--sage-100);--feedback-danger:var(--brick-600);--feedback-danger-tint:var(--brick-100);
 }

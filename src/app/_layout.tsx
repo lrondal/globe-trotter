@@ -15,6 +15,7 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
+import { LocationProvider, useLocation } from '@/location/LocationProvider';
 import { colors } from '@/theme/tokens';
 
 export { ErrorBoundary } from 'expo-router';
@@ -22,7 +23,17 @@ export { ErrorBoundary } from 'expo-router';
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const [loaded, error] = useFonts({
+  return (
+    <LocationProvider>
+      <App />
+    </LocationProvider>
+  );
+}
+
+/** Keeps the splash screen up until the fonts and the globe's launch view are ready. */
+function App() {
+  const { launch } = useLocation();
+  const [fontsLoaded, error] = useFonts({
     HankenGrotesk_400Regular,
     HankenGrotesk_500Medium,
     HankenGrotesk_600SemiBold,
@@ -34,6 +45,7 @@ export default function RootLayout() {
     if (error) throw error;
   }, [error]);
 
+  const loaded = fontsLoaded && launch !== null;
   useEffect(() => {
     if (loaded) SplashScreen.hideAsync();
   }, [loaded]);
