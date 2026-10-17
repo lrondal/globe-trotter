@@ -25,9 +25,12 @@ export function countryAt(
   detail: number,
   x: number,
   y: number,
-  tolerance = TAP_TOLERANCE,
+  tolerance?: number,
 ): number {
   'worklet';
+  // Not a default parameter: it would run before the worklet unpacks TAP_TOLERANCE from its
+  // closure, and throw on the UI thread (see worklets.test.ts).
+  const near = tolerance ?? TAP_TOLERANCE;
   const { xyz, level, ringStart, ringCap, ringCountry, footprints } = geometry;
   const { ex, ey, ez, nx, ny, nz, fx, fy, fz, s } = frame;
   const maxLevel = Math.floor(-2 * Math.log2(detail / (s * s)));
@@ -51,7 +54,7 @@ export function countryAt(
   const by = pz * ax - px * az;
   const bz = px * ay - py * ax;
 
-  const reach = tolerance / s;
+  const reach = near / s;
   let nearest = -1;
   let nearestDistance = reach;
   let nearestTiny = -1;
@@ -69,7 +72,7 @@ export function countryAt(
     const end = ringStart[r + 1];
     const country = ringCountry[r];
     const size = Math.max(footprints[4 * country + 2], footprints[4 * country + 3]) * s;
-    const tiny = size < tolerance;
+    const tiny = size < near;
     // Winding angle of the ring around P, edge by edge on the sphere: ±2π inside, 0 outside.
     // The ring's first point is an arc end, always drawn; the last edge comes back to it.
     let winding = 0;
