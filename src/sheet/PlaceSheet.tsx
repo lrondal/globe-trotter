@@ -5,13 +5,13 @@ import { X } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { cancelAnimation, Easing, useAnimatedStyle, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, { cancelAnimation, useAnimatedStyle, withTiming, type SharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { colors, duration, easing, layout, radius, shadow, space, text } from '@/theme/tokens';
+import { colors, layout, radius, shadow, space, text } from '@/theme/tokens';
 
 import { formatCoordinates } from './coordinates';
-import { detentHeight, restingDetent } from './detents';
+import { detentHeight, restingDetent, sheetTiming } from './detents';
 
 export type SheetPlace = { name: string; lon: number; lat: number };
 
@@ -24,7 +24,6 @@ type Props = {
   onClose: () => void;
 };
 
-export const sheetTiming = { duration: duration.slow, easing: Easing.bezier(...easing.out) };
 
 export function PlaceSheet({ height, screenHeight, place, onClose }: Props) {
   // The last Place stays on the sheet while it slides away.
@@ -116,18 +115,21 @@ const styles = StyleSheet.create({
   title: {
     ...text.displayL,
     color: colors.textPrimary,
-    letterSpacing: -0.34,
+    letterSpacing: 34 * -0.01,
   },
   meta: {
     ...text.caption,
     color: colors.textMuted,
+    fontVariant: ['tabular-nums'],
   },
+  // The design system's outline icon button, small size.
   close: {
     width: 36,
     height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: radius.md,
     borderWidth: layout.borderWidth,
     borderColor: colors.borderStrong,
   },

@@ -167,20 +167,31 @@ function seenFrom(f: ArrayLike<number>): Basis {
  * (shoelace), and its largest distance from the view centre along each axis.
  */
 function ringInView(points: Float64Array, start: number, end: number, { e, n, f }: Basis) {
-  let [area, cu, cv, eu, ev] = [0, 0, 0, 0, 0];
-  const at = (i: number, axis: number[]) =>
-    points[3 * i] * axis[0] + points[3 * i + 1] * axis[1] + points[3 * i + 2] * axis[2];
+  // Plain scalars in the loop: it runs over every point of the Atlas at startup.
+  const [ex, ey, ez, nx, ny, nz, fx, fy, fz] = [...e, ...n, ...f];
+  let area = 0;
+  let cu = 0;
+  let cv = 0;
+  let eu = 0;
+  let ev = 0;
+  let u0 = points[3 * (end - 1)] * ex + points[3 * (end - 1) + 1] * ey + points[3 * (end - 1) + 2] * ez;
+  let v0 = points[3 * (end - 1)] * nx + points[3 * (end - 1) + 1] * ny + points[3 * (end - 1) + 2] * nz;
   for (let i = start; i < end; i++) {
-    const j = i + 1 < end ? i + 1 : start;
-    const [u0, v0, u1, v1] = [at(i, e), at(i, n), at(j, e), at(j, n)];
+    const x = points[3 * i];
+    const y = points[3 * i + 1];
+    const z = points[3 * i + 2];
+    const u1 = x * ex + y * ey + z * ez;
+    const v1 = x * nx + y * ny + z * nz;
     const cross = u0 * v1 - u1 * v0;
     area += cross / 2;
     cu += ((u0 + u1) * cross) / 6;
     cv += ((v0 + v1) * cross) / 6;
     // A point on the far side of the globe stretches the ring across the whole view.
-    const behind = at(i, f) < 0;
-    eu = Math.max(eu, behind ? 1 : Math.abs(u0));
-    ev = Math.max(ev, behind ? 1 : Math.abs(v0));
+    const behind = x * fx + y * fy + z * fz < 0;
+    eu = Math.max(eu, behind ? 1 : Math.abs(u1));
+    ev = Math.max(ev, behind ? 1 : Math.abs(v1));
+    u0 = u1;
+    v0 = v1;
   }
   const centroid = area !== 0 ? { u: cu / area, v: cv / area } : { u: 0, v: 0 };
   return { area: Math.abs(area), centroid, extent: { u: eu, v: ev } };

@@ -41,6 +41,21 @@ test('a micro-country is found by a tap a few points off it, in the sea', () => 
   assert.equal(tap({ lon: -61.68, lat: 12.12, zoom: 4 }, -8, 0), '308');
 });
 
+test('a micro-country beats its big neighbour when the tap lands just off it', () => {
+  const monaco = { lon: 7.42, lat: 43.74, zoom: 2 };
+  // 1.2° south, in the sea, where the French coast is nearer than Monaco.
+  assert.equal(tap(monaco, 0, 8), '492');
+  // 0.3° west, inland in France.
+  assert.equal(tap(monaco, -2, 0), '492');
+  // Singapore: 0.3° north, in Malaysia.
+  assert.equal(tap({ lon: 103.82, lat: 1.36, zoom: 2 }, 0, -2), '702');
+});
+
+test('a tap well inside a big Country next to a micro-country still finds the big one', () => {
+  // 30 pt west of Monaco, about 4°: Provence.
+  assert.equal(tap({ lon: 7.42, lat: 43.74, zoom: 2 }, -30, 0), '250');
+});
+
 test('a tap far from any coast finds nothing, even near a micro-country', () => {
   // 4.5° east of Grenada, 2.4° from Barbados.
   assert.equal(tap({ lon: -61.68, lat: 12.12, zoom: 4 }, 60, 0), null);

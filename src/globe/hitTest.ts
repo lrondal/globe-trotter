@@ -6,11 +6,15 @@ import type { Frame } from './projection.ts';
 
 /** A tap this close to a Country, in points, still finds it when it lands in the sea. */
 export const TAP_TOLERANCE = 12;
+/** A tap this close to a Country too small to aim at finds it even inside its neighbour. */
+const TINY_TOLERANCE = 4;
 
 /**
  * Index of the Country under the screen point (x, y), or -1 for open sea and space. A tap
  * inside a Country finds it; a tap in the sea finds the nearest coast within `tolerance`
- * points, so that islands a few pixels wide can be tapped without aiming.
+ * points. A Country smaller on screen than `tolerance` (Monaco, Singapore, the Caribbean
+ * islands) is too small to aim at: within `tolerance` of a tap in the sea, or 4 points of a
+ * tap on its neighbour, it wins.
  *
  * Outlines are tested at the level of detail they are drawn with (see traceCountries), which
  * is what the user sees and spares most of the points at low zoom.
@@ -24,7 +28,7 @@ export function countryAt(
   tolerance = TAP_TOLERANCE,
 ): number {
   'worklet';
-  const { xyz, level, ringStart, ringCap, ringCountry } = geometry;
+  const { xyz, level, ringStart, ringCap, ringCountry, footprints } = geometry;
   const { ex, ey, ez, nx, ny, nz, fx, fy, fz, s } = frame;
   const maxLevel = Math.floor(-2 * Math.log2(detail / (s * s)));
   const u = (x - frame.cx) / s;
@@ -50,6 +54,8 @@ export function countryAt(
   const reach = tolerance / s;
   let nearest = -1;
   let nearestDistance = reach;
+  let nearestTiny = -1;
+  let nearestTinyDistance = reach;
   // Countries whose rings wind around P an odd number of times (a hole cancels its outline).
   const inside: number[] = [];
 
@@ -61,6 +67,9 @@ export function countryAt(
 
     const start = ringStart[r];
     const end = ringStart[r + 1];
+    const country = ringCountry[r];
+    const size = Math.max(footprints[4 * country + 2], footprints[4 * country + 3]) * s;
+    const tiny = size < tolerance;
     // Winding angle of the ring around P, edge by edge on the sphere: ±2π inside, 0 outside.
     // The ring's first point is an arc end, always drawn; the last edge comes back to it.
     let winding = 0;
@@ -91,7 +100,11 @@ export function countryAt(
         const distance = Math.hypot(qu + t * du, qv + t * dv);
         if (distance < nearestDistance) {
           nearestDistance = distance;
-          nearest = ringCountry[r];
+          nearest = country;
+        }
+        if (tiny && distance < nearestTinyDistance) {
+          nearestTinyDistance = distance;
+          nearestTiny = country;
         }
       }
       qx = rx;
@@ -102,11 +115,13 @@ export function countryAt(
       qw = rw;
     }
     if (Math.abs(winding) > Math.PI) {
-      const country = ringCountry[r];
       const k = inside.indexOf(country);
       if (k < 0) inside.push(country);
       else inside.splice(k, 1);
     }
   }
-  return inside.length > 0 ? inside[0] : nearest;
+  // A tap inside a tiny Country is within 0 points of it, so it wins here too.
+  if (nearestTiny >= 0 && (inside.length === 0 || nearestTinyDistance * s <= TINY_TOLERANCE)) return nearestTiny;
+  if (inside.length > 0) return inside[0];
+  return nearest;
 }

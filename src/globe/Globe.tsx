@@ -3,10 +3,11 @@
 // Everything that runs per frame stays on the UI thread: the gestures, the inertia and the
 // flight to a selected Country update shared values through the Globe camera, and the paths
 // are re-projected from the geometry the Atlas prepared once. React only renders on layout
-// and on button presses: selecting a Country is told to the parent, never re-renders the globe.
+// and on button presses: selecting a Country is told to the parent, and the globe is memoised
+// so the sheet re-rendering never rebuilds its gestures and paths mid-flight.
 import { Canvas, Circle, Path, usePathValue } from '@shopify/react-native-skia';
 import { Minus, Plus } from 'lucide-react-native';
-import { useImperativeHandle, useState, type Ref } from 'react';
+import { memo, useImperativeHandle, useState, type Ref } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -20,12 +21,11 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { scheduleOnRN } from 'react-native-worklets';
+import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 
 import { countryGeometry, footprintOf } from '@/atlas';
 import { IconButton } from '@/components/IconButton';
-import { detentHeight } from '@/sheet/detents';
-import { sheetTiming } from '@/sheet/PlaceSheet';
+import { detentHeight, sheetTiming } from '@/sheet/detents';
 import { colors, duration, easing, fonts, layout, radius } from '@/theme/tokens';
 
 import {
@@ -73,7 +73,7 @@ type Props = {
   ref?: Ref<GlobeHandle>;
 };
 
-export function Globe({ sheetHeight, onSelect, ref }: Props) {
+export const Globe = memo(function Globe({ sheetHeight, onSelect, ref }: Props) {
   const insets = useSafeAreaInsets();
   const viewport = useSharedValue<Viewport>({ width: 0, height: 0 });
   const lon = useSharedValue(START.lon);
@@ -89,7 +89,7 @@ export function Globe({ sheetHeight, onSelect, ref }: Props) {
   const [detail, setDetail] = useState<Detail>('standard');
   const [measures, setMeasures] = useState<Measures | null>(null);
   const measuring = measures !== null;
-  const tolerance = DETAIL[detail];
+  const detailArea = DETAIL[detail];
   const buildMs = useSharedValue(0);
   const points = useSharedValue(0);
   const meter = useSharedValue({ start: 0, frames: 0, time: 0, worst: 0, ms: 0, lon: 0, lat: 0, zoom: 0 });
@@ -127,13 +127,22 @@ export function Globe({ sheetHeight, onSelect, ref }: Props) {
     lift.value = withTiming(0, sheetTiming);
     sheetHeight.value = withTiming(0, sheetTiming);
   };
-  useImperativeHandle(ref, () => ({ deselect }));
+  // A flight cut short by a gesture still lifts the globe above the sheet it opened.
+  const stopFlight = () => {
+    'worklet';
+    const flying = flight.value;
+    if (!flying) return;
+    flight.value = null;
+    lift.value = withTiming(flying.to.lift, sheetTiming);
+  };
+  // On the UI thread, so it cannot interleave with a frame of the flight.
+  useImperativeHandle(ref, () => ({ deselect: () => scheduleOnUI(deselect) }), []);
 
   const land = usePathValue((path) => {
     'worklet';
     if (viewport.value.width === 0) return;
     const start = performance.now();
-    points.value = traceCountries(countryGeometry, frame(), tolerance, path);
+    points.value = traceCountries(countryGeometry, frame(), detailArea, path);
     buildMs.value = performance.now() - start;
   });
   const graticule = usePathValue((path) => {
@@ -149,7 +158,7 @@ export function Globe({ sheetHeight, onSelect, ref }: Props) {
     .maxDistance(10)
     .onEnd((e, success) => {
       if (!success) return;
-      const country = countryAt(countryGeometry, frame(), tolerance, e.x, e.y);
+      const country = countryAt(countryGeometry, frame(), detailArea, e.x, e.y);
       if (country >= 0) {
         select(country);
       } else {
@@ -163,7 +172,7 @@ export function Globe({ sheetHeight, onSelect, ref }: Props) {
     .onBegin(() => {
       // Touching the globe stops it, in flight too.
       spin.value = null;
-      flight.value = null;
+      stopFlight();
       pinchedThisTouch.value = false;
     })
     .onChange((e) => {
@@ -179,7 +188,7 @@ export function Globe({ sheetHeight, onSelect, ref }: Props) {
       pinching.value = true;
       pinchedThisTouch.value = true;
       spin.value = null;
-      flight.value = null;
+      stopFlight();
       cancelAnimation(zoom);
       pinchStartZoom.value = zoom.value;
     })
@@ -236,10 +245,13 @@ export function Globe({ sheetHeight, onSelect, ref }: Props) {
     meter.value = next;
   });
 
-  const zoomWith = (step: (v: GlobeView) => GlobeView) => {
-    flight.value = null;
-    zoom.value = withTiming(step({ lon: lon.value, lat: lat.value, zoom: zoom.value }).zoom, zoomTiming);
+  const zoomBy = (step: (v: GlobeView) => GlobeView) => {
+    'worklet';
+    stopFlight();
+    zoom.value = withTiming(step(view()).zoom, zoomTiming);
   };
+  // On the UI thread, like the flight it may interrupt.
+  const zoomWith = (step: (v: GlobeView) => GlobeView) => scheduleOnUI(zoomBy, step);
   // The map buttons rise with the sheet, up to its half height; above that it covers them.
   const mapButtonsStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: -Math.min(sheetHeight.value, detentHeight('half', viewport.value.height)) }],
@@ -288,7 +300,7 @@ export function Globe({ sheetHeight, onSelect, ref }: Props) {
       )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   screen: {

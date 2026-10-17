@@ -1,7 +1,14 @@
 // The heights the Place sheet rests at, as points of sheet showing above the bottom of the
 // Globe screen. Worklets, so the Globe can open the sheet from the tap gesture.
 
+import { Easing } from 'react-native-reanimated';
+
+import { duration, easing } from '../theme/tokens.ts';
+
 export type Detent = 'peek' | 'half' | 'full';
+
+/** How the sheet slides to a detent, opening and closing. */
+export const sheetTiming = { duration: duration.slow, easing: Easing.bezier(...easing.out) };
 
 /** Globe left visible above the sheet when it is full height. */
 const FULL_GAP = 56;
