@@ -5,6 +5,7 @@
   "dependencies": {
     "@expo-google-fonts/hanken-grotesk": "^0.4.3",
     "@expo-google-fonts/instrument-serif": "^0.4.1",
+    "@shopify/react-native-skia": "2.6.2",
     "expo": "~57.0.30",
     "expo-constants": "~57.0.22",
     "expo-font": "~57.0.4",
@@ -16,6 +17,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
+    "react-native-gesture-handler": "~2.32.0",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
@@ -23,16 +25,26 @@
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@types/d3-geo": "^3.1.1",
     "@types/node": "^26.6.5",
     "@types/react": "~19.2.2",
-    "typescript": "~6.0.3"
+    "@types/topojson-client": "^3.1.5",
+    "@types/topojson-simplify": "^3.0.3",
+    "@types/topojson-specification": "^1.0.5",
+    "d3-geo": "^3.1.1",
+    "i18n-iso-countries": "^7.14.0",
+    "topojson-client": "^3.1.0",
+    "topojson-simplify": "^3.0.3",
+    "typescript": "~6.0.3",
+    "world-atlas": "^2.0.2"
   },
   "scripts": {
     "start": "expo start",
     "ios": "expo start --ios",
     "android": "expo start --android",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "data:countries": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/build-countries.ts"
   },
   "private": true
 }

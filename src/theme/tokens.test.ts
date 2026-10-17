@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { colors, duration, easing, layout, pressFeedback, radius, space, text } from './tokens.ts';
+import { colors, duration, easing, layout, pressFeedback, radius, shadow, space, text } from './tokens.ts';
 
 // The design system's CSS custom properties are the source of truth; the app's
 // tokens must carry the same values.
@@ -82,3 +82,14 @@ test('every design-system text style is available with an absolute line height a
     );
   }
 });
+
+test('shadows match the design system, as React Native boxShadow strings', () => {
+  const vars = cssVariables('spacing.css');
+  assert.deepEqual(shadow, rawScale(vars, 'shadow'));
+});
+
+function rawScale(vars: Map<string, string>, prefix: string): Record<string, string> {
+  return Object.fromEntries(
+    [...vars].filter(([name]) => name.startsWith(`${prefix}-`)).map(([name, value]) => [camel(name.slice(prefix.length + 1)), value]),
+  );
+}
