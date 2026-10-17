@@ -51,9 +51,9 @@ import {
 const zoomTiming = { duration: duration.slow, easing: Easing.bezier(...easing.out) };
 /** The flight to a point, as long as the flight to a Country (#1 R4). */
 const flightTiming = { duration: duration.flight, easing: Easing.bezier(...easing.inOut) };
-/** The location dot: a sage dot with a paper ring, in points. */
-const LOCATION_RADIUS = 6;
-const LOCATION_RING = 2;
+/** The location dot: a 6 pt sage dot with a thin paper ring, in points. */
+const LOCATION_RADIUS = 3;
+const LOCATION_RING = 1.5;
 /** Measures are reported to the panel this often, in milliseconds. */
 const MEASURE_EVERY = 500;
 
@@ -99,6 +99,8 @@ export function Globe({ start, position, onRecenter, children }: Props) {
     lat.value = next.lat;
   };
 
+  // The paths may read the camera through view(): usePathValue notifies its own path,
+  // so it re-runs every frame whatever its callback reads. Derived values do not.
   const land = usePathValue((path) => {
     'worklet';
     if (viewport.value.width === 0) return;
@@ -118,10 +120,13 @@ export function Globe({ start, position, onRecenter, children }: Props) {
   useEffect(() => {
     shownPosition.value = position;
   }, [shownPosition, position]);
+  // The camera is read here, not through view(): a derived value only re-runs when a
+  // shared value it reads directly changes, so the dot would stay where the globe opened.
   const dot = useDerivedValue(() => {
     const point = shownPosition.value;
     if (!point || viewport.value.width === 0) return { x: 0, y: 0, visible: false };
-    return projectPoint(frameFor(view(), viewport.value), point);
+    const camera = { lon: lon.value, lat: lat.value, zoom: zoom.value };
+    return projectPoint(frameFor(camera, viewport.value), point);
   });
   const dotX = useDerivedValue(() => dot.value.x);
   const dotY = useDerivedValue(() => dot.value.y);

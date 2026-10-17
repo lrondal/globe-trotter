@@ -41,7 +41,7 @@ export function Globe({onSelectPlace,maxZoom=24,offsetY=0,regions={},onSelectReg
           else q.onSelect&&q.onSelect({id:d.id,name:'',centroid:centroids[d.id]});}))
         .attr('d',d=>path(d.f)).attr('fill',d=>d.st==='v'?css('--state-visited'):d.st==='w'?css('--state-wish'):'transparent')
         .attr('stroke',css('--paper-0')).attr('stroke-width',.6).attr('stroke-opacity',.9);
-      locG.selectAll('circle').data(p.location?[p.location]:[]).join('circle').attr('r',7).attr('fill',css('--globe-location')).attr('stroke',css('--paper-0')).attr('stroke-width',2)
+      locG.selectAll('circle').data(p.location?[p.location]:[]).join('circle').attr('r',3.75).attr('fill',css('--globe-location')).attr('stroke',css('--paper-0')).attr('stroke-width',1.5)
         .attr('cx',d=>proj([d.lon,d.lat])[0]).attr('cy',d=>proj([d.lon,d.lat])[1]).attr('display',d=>vis(d)?null:'none');
       pinG.selectAll('circle').data(p.pins).join(en=>en.append('circle').style('cursor','pointer').on('click',(e,d)=>{e.stopPropagation();const q=P.current;q.onSelectPlace&&q.onSelectPlace(d);})).attr('r',3.5).attr('fill',css('--globe-pin')).attr('stroke',css('--paper-0')).attr('stroke-width',1.2)
         .attr('cx',d=>proj([d.lon,d.lat])[0]).attr('cy',d=>proj([d.lon,d.lat])[1]).attr('display',d=>vis(d)?null:'none');
