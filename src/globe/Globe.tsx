@@ -1,29 +1,47 @@
 // The globe: Countries drawn with Skia, turned and zoomed by the finger.
 //
-// Everything that runs per frame stays on the UI thread: the gestures and the inertia
-// update shared values through the Globe camera, and the paths are re-projected from
-// the geometry the Atlas prepared once. React only renders on layout and on button presses.
+// Everything that runs per frame stays on the UI thread: the gestures, the inertia and the
+// flight to a selected Country update shared values through the Globe camera, and the paths
+// are re-projected from the geometry the Atlas prepared once. React only renders on layout
+// and on button presses: selecting a Country is told to the parent, never re-renders the globe.
 import { Canvas, Circle, Path, usePathValue } from '@shopify/react-native-skia';
 import { Minus, Plus } from 'lucide-react-native';
-import { useState } from 'react';
+import { useImperativeHandle, useState, type Ref } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import {
+import Animated, {
   cancelAnimation,
   Easing,
+  useAnimatedStyle,
   useDerivedValue,
   useFrameCallback,
   useSharedValue,
   withTiming,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { countryGeometry } from '@/atlas';
+import { countryGeometry, footprintOf } from '@/atlas';
 import { IconButton } from '@/components/IconButton';
+import { detentHeight } from '@/sheet/detents';
+import { sheetTiming } from '@/sheet/PlaceSheet';
 import { colors, duration, easing, fonts, layout, radius } from '@/theme/tokens';
 
-import { coast, drag, pinch, release, zoomIn, zoomOut, type Spin, type View as GlobeView } from './camera';
+import {
+  coast,
+  drag,
+  fit,
+  fly,
+  pinch,
+  release,
+  zoomIn,
+  zoomOut,
+  type Shot,
+  type Spin,
+  type View as GlobeView,
+} from './camera';
+import { countryAt } from './hitTest';
 import { MeasurePanel, type Measures } from './MeasurePanel';
 import {
   DETAIL,
@@ -42,13 +60,28 @@ const zoomTiming = { duration: duration.slow, easing: Easing.bezier(...easing.ou
 /** Measures are reported to the panel this often, in milliseconds. */
 const MEASURE_EVERY = 500;
 
-export function Globe() {
+export type GlobeHandle = {
+  /** Lets go of the selected Country: closes the sheet and lowers the globe back. */
+  deselect(): void;
+};
+
+type Props = {
+  /** Height of the Place sheet showing (see PlaceSheet), opened and closed by the globe. */
+  sheetHeight: SharedValue<number>;
+  /** Index in the Atlas of the Country tapped, or null when the sea is tapped. */
+  onSelect: (country: number | null) => void;
+  ref?: Ref<GlobeHandle>;
+};
+
+export function Globe({ sheetHeight, onSelect, ref }: Props) {
   const insets = useSafeAreaInsets();
   const viewport = useSharedValue<Viewport>({ width: 0, height: 0 });
   const lon = useSharedValue(START.lon);
   const lat = useSharedValue(START.lat);
   const zoom = useSharedValue(START.zoom);
+  const lift = useSharedValue(0);
   const spin = useSharedValue<Spin | null>(null);
+  const flight = useSharedValue<{ from: Shot; to: Shot; elapsed: number } | null>(null);
   const pinching = useSharedValue(false);
   const pinchedThisTouch = useSharedValue(false);
   const pinchStartZoom = useSharedValue(START.zoom);
@@ -71,29 +104,66 @@ export function Globe() {
     lon.value = next.lon;
     lat.value = next.lat;
   };
+  const frame = () => {
+    'worklet';
+    return frameFor(view(), viewport.value, lift.value);
+  };
+
+  const select = (country: number) => {
+    'worklet';
+    const screenHeight = viewport.value.height;
+    const half = detentHeight('half', screenHeight);
+    const to = fit(footprintOf(countryGeometry, country), viewport.value, screenHeight - half);
+    spin.value = null;
+    cancelAnimation(zoom);
+    cancelAnimation(lift);
+    flight.value = { from: { view: view(), lift: lift.value }, to, elapsed: 0 };
+    sheetHeight.value = withTiming(half, sheetTiming);
+    scheduleOnRN(onSelect, country);
+  };
+  const deselect = () => {
+    'worklet';
+    flight.value = null;
+    lift.value = withTiming(0, sheetTiming);
+    sheetHeight.value = withTiming(0, sheetTiming);
+  };
+  useImperativeHandle(ref, () => ({ deselect }));
 
   const land = usePathValue((path) => {
     'worklet';
     if (viewport.value.width === 0) return;
     const start = performance.now();
-    points.value = traceCountries(countryGeometry, frameFor(view(), viewport.value), tolerance, path);
+    points.value = traceCountries(countryGeometry, frame(), tolerance, path);
     buildMs.value = performance.now() - start;
   });
   const graticule = usePathValue((path) => {
     'worklet';
     if (viewport.value.width === 0) return;
-    traceGraticule(frameFor(view(), viewport.value), path);
+    traceGraticule(frame(), path);
   });
   const cx = useDerivedValue(() => viewport.value.width / 2);
-  const cy = useDerivedValue(() => globeCenterY(viewport.value));
+  const cy = useDerivedValue(() => globeCenterY(viewport.value) - lift.value);
   const r = useDerivedValue(() => globeRadius(viewport.value) * zoom.value);
 
+  const tap = Gesture.Tap()
+    .maxDistance(10)
+    .onEnd((e, success) => {
+      if (!success) return;
+      const country = countryAt(countryGeometry, frame(), tolerance, e.x, e.y);
+      if (country >= 0) {
+        select(country);
+      } else {
+        deselect();
+        scheduleOnRN(onSelect, null);
+      }
+    });
   const pan = Gesture.Pan()
     .minDistance(4)
     .averageTouches(true)
     .onBegin(() => {
-      // Touching the globe stops it.
+      // Touching the globe stops it, in flight too.
       spin.value = null;
+      flight.value = null;
       pinchedThisTouch.value = false;
     })
     .onChange((e) => {
@@ -109,6 +179,7 @@ export function Globe() {
       pinching.value = true;
       pinchedThisTouch.value = true;
       spin.value = null;
+      flight.value = null;
       cancelAnimation(zoom);
       pinchStartZoom.value = zoom.value;
     })
@@ -118,7 +189,8 @@ export function Globe() {
     .onFinalize(() => {
       pinching.value = false;
     });
-  const gestures = Gesture.Simultaneous(pan, pinchGesture);
+  // A tap fails as soon as the finger moves enough to turn the globe.
+  const gestures = Gesture.Race(Gesture.Simultaneous(pan, pinchGesture), tap);
 
   useFrameCallback((frame) => {
     'worklet';
@@ -128,6 +200,15 @@ export function Globe() {
       const next = coast(view(), spinning, dt);
       turnTo(next.view);
       spin.value = next.spin;
+    }
+    const flying = flight.value;
+    if (flying) {
+      const elapsed = flying.elapsed + dt;
+      const { shot, done } = fly(flying.from, flying.to, elapsed);
+      turnTo(shot.view);
+      zoom.value = shot.view.zoom;
+      lift.value = shot.lift;
+      flight.value = done ? null : { ...flying, elapsed };
     }
     if (!measuring) return;
     // fps and build time while the globe moves, as in the prototype's panel.
@@ -156,8 +237,13 @@ export function Globe() {
   });
 
   const zoomWith = (step: (v: GlobeView) => GlobeView) => {
+    flight.value = null;
     zoom.value = withTiming(step({ lon: lon.value, lat: lat.value, zoom: zoom.value }).zoom, zoomTiming);
   };
+  // The map buttons rise with the sheet, up to its half height; above that it covers them.
+  const mapButtonsStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -Math.min(sheetHeight.value, detentHeight('half', viewport.value.height)) }],
+  }));
 
   return (
     <View
@@ -176,10 +262,10 @@ export function Globe() {
         </Canvas>
       </GestureDetector>
 
-      <View style={styles.mapButtons} pointerEvents="box-none">
+      <Animated.View style={[styles.mapButtons, mapButtonsStyle]} pointerEvents="box-none">
         <IconButton icon={Plus} label="Zoomer" onPress={() => zoomWith(zoomIn)} />
         <IconButton icon={Minus} label="Dézoomer" onPress={() => zoomWith(zoomOut)} />
-      </View>
+      </Animated.View>
 
       {__DEV__ && (
         <View style={[styles.measure, { top: insets.top + 8 }]} pointerEvents="box-none">
