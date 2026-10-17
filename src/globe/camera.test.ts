@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { coast, drag, pinch, release, zoomIn, zoomOut, type Spin, type View } from './camera.ts';
+import { centerOn, coast, drag, pinch, release, zoomIn, zoomOut, type Spin, type View } from './camera.ts';
 
 // A 402 pt wide iPhone: the globe's radius at zoom 1 is 0.49 × 402.
 const RADIUS = 196.98;
@@ -74,4 +74,16 @@ test('a fling never tilts the view past 60° S', () => {
     lowest = Math.min(lowest, view.lat);
   }
   assert.equal(lowest, -60);
+});
+
+test('recentring faces the point at zoom 1, turning the short way across the antimeridian', () => {
+  const view = centerOn({ lon: 170, lat: 10, zoom: 5 }, { lon: -170, lat: 35 });
+  assert.ok(Math.abs(view.lon - 190) < 1e-9, `lon ${view.lon}`);
+  assert.deepEqual({ lat: view.lat, zoom: view.zoom }, { lat: 35, zoom: 1 });
+});
+
+test('recentring on a point beyond 60° N stops at the tilt limit', () => {
+  const view = centerOn(europe, { lon: 18.9, lat: 69.6 });
+  assert.ok(Math.abs(view.lon - 18.9) < 1e-9, `lon ${view.lon}`);
+  assert.deepEqual({ lat: view.lat, zoom: view.zoom }, { lat: 60, zoom: 1 });
 });

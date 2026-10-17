@@ -1,9 +1,9 @@
 import React from 'react';
 const TOPO='https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
 function loadWorld(){ if(!window.__gtWorld) window.__gtWorld=fetch(TOPO).then(r=>r.json()).then(w=>window.topojson.feature(w,w.objects.countries).features); return window.__gtWorld; }
-export function Globe({onSelectPlace,maxZoom=24,offsetY=0,regions={},onSelectRegion,visited=[],wish=[],pins=[],photos=[],filters={visited:true,wish:true,unexplored:true},selected,focus,onSelect,photoZoom=1.8,autoRotate=false,initialRotate=[-10,-30],padding=0.88,style}){
+export function Globe({onSelectPlace,maxZoom=24,offsetY=0,regions={},onSelectRegion,visited=[],wish=[],pins=[],location=null,photos=[],filters={visited:true,wish:true,unexplored:true},selected,focus,onSelect,photoZoom=1.8,autoRotate=false,initialRotate=[-10,-30],padding=0.88,style}){
   const host=React.useRef(null), api=React.useRef({}), P=React.useRef({});
-  P.current={onSelectPlace,offsetY,regions,onSelectRegion,visited:new Set(visited.map(Number)),wish:new Set(wish.map(Number)),pins,photos,filters,selected:selected!=null?Number(selected):null,onSelect,photoZoom};
+  P.current={onSelectPlace,offsetY,regions,onSelectRegion,visited:new Set(visited.map(Number)),wish:new Set(wish.map(Number)),pins,location,photos,filters,selected:selected!=null?Number(selected):null,onSelect,photoZoom};
   React.useEffect(()=>{
     const d3=window.d3; if(!d3||!window.topojson){console.error('Globe: load d3@7 and topojson-client@3 first');return;}
     const el=host.current, css=n=>getComputedStyle(el).getPropertyValue(n).trim();
@@ -13,7 +13,7 @@ export function Globe({onSelectPlace,maxZoom=24,offsetY=0,regions={},onSelectReg
     const defs=svg.append('defs');
     const sphere=svg.append('path').datum({type:'Sphere'});
     const grat=svg.append('path').datum(d3.geoGraticule10()).attr('fill','none').attr('stroke-width',.5);
-    const landG=svg.append('g'), regG=svg.append('g'), pinG=svg.append('g'), photoG=svg.append('g');
+    const landG=svg.append('g'), regG=svg.append('g'), locG=svg.append('g'), pinG=svg.append('g'), photoG=svg.append('g');
     let land=landG.selectAll('path');
     const size=()=>{W=el.clientWidth||W;H=el.clientHeight||H;R=Math.min(W,H)/2*padding;svg.attr('width',W).attr('height',H);proj.translate([W/2,H/2+off]).scale(R*k);};
     let k=1,prev=d3.zoomIdentity,off=offsetY;
@@ -41,6 +41,8 @@ export function Globe({onSelectPlace,maxZoom=24,offsetY=0,regions={},onSelectReg
           else q.onSelect&&q.onSelect({id:d.id,name:'',centroid:centroids[d.id]});}))
         .attr('d',d=>path(d.f)).attr('fill',d=>d.st==='v'?css('--state-visited'):d.st==='w'?css('--state-wish'):'transparent')
         .attr('stroke',css('--paper-0')).attr('stroke-width',.6).attr('stroke-opacity',.9);
+      locG.selectAll('circle').data(p.location?[p.location]:[]).join('circle').attr('r',6).attr('fill',css('--globe-location')).attr('stroke',css('--paper-0')).attr('stroke-width',2)
+        .attr('cx',d=>proj([d.lon,d.lat])[0]).attr('cy',d=>proj([d.lon,d.lat])[1]).attr('display',d=>vis(d)?null:'none');
       pinG.selectAll('circle').data(p.pins).join(en=>en.append('circle').style('cursor','pointer').on('click',(e,d)=>{e.stopPropagation();const q=P.current;q.onSelectPlace&&q.onSelectPlace(d);})).attr('r',3.5).attr('fill',css('--globe-pin')).attr('stroke',css('--paper-0')).attr('stroke-width',1.2)
         .attr('cx',d=>proj([d.lon,d.lat])[0]).attr('cy',d=>proj([d.lon,d.lat])[1]).attr('display',d=>vis(d)?null:'none');
       const showPh=k>=p.photoZoom, s=Math.min(38,16+k*5);

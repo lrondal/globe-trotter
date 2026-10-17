@@ -74,6 +74,21 @@ export function frameFor(view: View, viewport: Viewport): Frame {
   };
 }
 
+/** Where a point of the globe is drawn, and whether it faces the user. */
+export function projectPoint(frame: Frame, lon: number, lat: number) {
+  'worklet';
+  const λ = (lon * Math.PI) / 180;
+  const φ = (lat * Math.PI) / 180;
+  const px = Math.cos(φ) * Math.cos(λ);
+  const py = Math.cos(φ) * Math.sin(λ);
+  const pz = Math.sin(φ);
+  return {
+    x: frame.cx + frame.s * (px * frame.ex + py * frame.ey + pz * frame.ez),
+    y: frame.cy - frame.s * (px * frame.nx + py * frame.ny + pz * frame.nz),
+    visible: px * frame.fx + py * frame.fy + pz * frame.fz >= 0,
+  };
+}
+
 /** Angular radius around the view centre that can reach the screen. */
 function reachAngle(frame: Frame) {
   'worklet';

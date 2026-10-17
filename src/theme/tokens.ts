@@ -59,6 +59,7 @@ export const colors = {
   globeGraticule: '#E0DACD',
   globeRim: palette.paper4,
   globePin: palette.ink1,
+  globeLocation: palette.sage600,
   feedbackSuccess: palette.sage600,
   feedbackSuccessTint: palette.sage100,
   feedbackDanger: palette.brick600,
