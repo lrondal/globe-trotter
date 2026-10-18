@@ -72,6 +72,8 @@ const LAYERS = Object.values(LAYER);
 const DRAG_AFTER_PINCH = 10;
 
 export type GlobeHandle = {
+  /** Flies to the Country at this index in the Atlas and opens its sheet, as a tap on it does. */
+  select(country: number): void;
   /** Lets go of the selected Country: closes the sheet and lowers the globe back. */
   deselect(): void;
 };
@@ -175,7 +177,11 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
     scheduleOnRN(onSelect, null);
   };
   // On the UI thread, so it cannot interleave with a frame of the flight.
-  useImperativeHandle(ref, () => ({ deselect: () => scheduleOnUI(deselect) }), []);
+  useImperativeHandle(
+    ref,
+    () => ({ select: (country) => scheduleOnUI(select, country), deselect: () => scheduleOnUI(deselect) }),
+    [],
+  );
 
   // The paths may read the camera through frame(): usePathValue notifies its own path,
   // so it re-runs every frame whatever its callback reads. Derived values do not.

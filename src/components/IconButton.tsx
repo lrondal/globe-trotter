@@ -13,6 +13,8 @@ type Props = {
   onLongPress?: () => void;
   /** The finger lifted, after a press or a hold. */
   onPressOut?: () => void;
+  /** Raised floats over the globe; ghost sits on a page, e.g. a screen's top bar. */
+  variant?: 'raised' | 'ghost';
 };
 
 /** How long a finger must stay down for a press to become a hold, in milliseconds. */
@@ -21,8 +23,9 @@ const HOLD_DELAY = 300;
 const { scale: pressedScale, duration, easing } = pressFeedback.iconButton;
 const timing = { duration, easing: Easing.bezier(...easing) };
 
-/** Round raised icon button, for controls floating over the globe. */
-export function IconButton({ icon: Icon, label, onPress, onLongPress, onPressOut }: Props) {
+/** Icon button: round and raised for controls floating over the globe, or ghost. */
+export function IconButton({ icon: Icon, label, onPress, onLongPress, onPressOut, variant = 'raised' }: Props) {
+  const rest = variant === 'raised' ? colors.surfaceRaised : 'transparent';
   const scale = useSharedValue(1);
   const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
@@ -39,7 +42,11 @@ export function IconButton({ icon: Icon, label, onPress, onLongPress, onPressOut
           scale.value = withTiming(1, timing);
           onPressOut?.();
         }}
-        style={({ pressed }) => [styles.base, { backgroundColor: pressed ? colors.paper2 : colors.surfaceRaised }]}>
+        style={({ pressed }) => [
+          styles.base,
+          variant === 'raised' ? styles.raised : styles.ghost,
+          { backgroundColor: pressed ? colors.paper2 : rest },
+        ]}>
         <Icon color={colors.textPrimary} size={20} strokeWidth={2} />
       </Pressable>
     </Animated.View>
@@ -52,9 +59,14 @@ const styles = StyleSheet.create({
     height: layout.hitMin,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  raised: {
     borderRadius: radius.pill,
     borderWidth: layout.borderWidth,
     borderColor: colors.borderDefault,
     boxShadow: shadow[2],
+  },
+  ghost: {
+    borderRadius: radius.md,
   },
 });
