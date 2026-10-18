@@ -1,19 +1,22 @@
 // The Place sheet: a paper sheet over the bottom of the globe, dragged between peek, half and
 // full height. Its height is a shared value the Globe writes too, so a tap on a Country opens
 // it from the UI thread, before React has rendered its content.
-import { X } from 'lucide-react-native';
+import { Bookmark, BookmarkMinus, Check, X } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { cancelAnimation, useAnimatedStyle, withTiming, type SharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
+import { Button } from '@/components/Button';
+import { StatusBadge } from '@/components/StatusBadge';
+import type { Mark, Status } from '@/journal/journal';
 import { colors, layout, radius, shadow, space, text } from '@/theme/tokens';
 
 import { formatCoordinates } from './coordinates';
 import { detentHeight, restingDetent, sheetTiming } from './detents';
 
-export type SheetPlace = { name: string; lon: number; lat: number };
+export type SheetPlace = { name: string; lon: number; lat: number; status: Status };
 
 type Props = {
   /** Points of sheet showing above the bottom of the screen; 0 when closed. */
@@ -22,10 +25,12 @@ type Props = {
   /** The Place shown; null while the sheet closes. */
   place: SheetPlace | null;
   onClose: () => void;
+  /** Sets the Mark of the Place shown; null is Retirer. */
+  onMark: (mark: Mark | null) => void;
 };
 
 
-export function PlaceSheet({ height, screenHeight, place, onClose }: Props) {
+export function PlaceSheet({ height, screenHeight, place, onClose, onMark }: Props) {
   // The last Place stays on the sheet while it slides away.
   const [shown, setShown] = useState(place);
   if (place && place !== shown) setShown(place);
@@ -60,7 +65,10 @@ export function PlaceSheet({ height, screenHeight, place, onClose }: Props) {
                 <Text style={styles.title} numberOfLines={2}>
                   {shown.name}
                 </Text>
-                <Text style={styles.meta}>{formatCoordinates(shown.lon, shown.lat)}</Text>
+                <View style={styles.status}>
+                  <StatusBadge status={shown.status} />
+                  <Text style={styles.meta}>{formatCoordinates(shown.lon, shown.lat)}</Text>
+                </View>
               </View>
               <Pressable
                 accessibilityRole="button"
@@ -74,7 +82,37 @@ export function PlaceSheet({ height, screenHeight, place, onClose }: Props) {
           )}
         </View>
       </GestureDetector>
+      {shown && <MarkActions status={shown.status} onMark={onMark} />}
     </Animated.View>
+  );
+}
+
+/** « Marquer visité » and « À visiter » / « Retirer », as the Place's Status allows. */
+function MarkActions({ status, onMark }: { status: Status; onMark: (mark: Mark | null) => void }) {
+  if (status === 'visited') {
+    return (
+      <View style={styles.actions}>
+        <Button variant="secondary" icon={X} onPress={() => onMark(null)} style={styles.action}>
+          Retirer
+        </Button>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.actions}>
+      <Button variant="accent" icon={Check} onPress={() => onMark('visited')} style={styles.action}>
+        Marquer visité
+      </Button>
+      {status === 'wish' ? (
+        <Button variant="secondary" icon={BookmarkMinus} onPress={() => onMark(null)} style={styles.action}>
+          Retirer
+        </Button>
+      ) : (
+        <Button variant="secondary" icon={Bookmark} onPress={() => onMark('wish')} style={styles.action}>
+          À visiter
+        </Button>
+      )}
+    </View>
   );
 }
 
@@ -117,10 +155,24 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     letterSpacing: 34 * -0.01,
   },
+  status: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
   meta: {
     ...text.caption,
     color: colors.textMuted,
     fontVariant: ['tabular-nums'],
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: layout.screenGutter,
+  },
+  action: {
+    flex: 1,
   },
   // The design system's outline icon button, small size.
   close: {

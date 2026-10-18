@@ -1,3 +1,4 @@
+import type { LucideIcon } from 'lucide-react-native';
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -9,6 +10,8 @@ type Size = 'md' | 'sm';
 
 type Props = {
   children: ReactNode;
+  /** Drawn before the label. */
+  icon?: LucideIcon;
   onPress?: () => void;
   variant?: Variant;
   size?: Size;
@@ -24,9 +27,9 @@ const VARIANTS: Record<Variant, { bg: string; bgPressed: string; fg: string; bor
   ghost: { bg: 'transparent', bgPressed: colors.paper2, fg: colors.textPrimary, border: 'transparent' },
 };
 
-const SIZES: Record<Size, { height: number; paddingHorizontal: number; fontSize: number }> = {
-  md: { height: layout.hitMin, paddingHorizontal: 18, fontSize: text.body.fontSize },
-  sm: { height: 36, paddingHorizontal: 14, fontSize: text.bodyS.fontSize },
+const SIZES: Record<Size, { height: number; paddingHorizontal: number; fontSize: number; iconSize: number }> = {
+  md: { height: layout.hitMin, paddingHorizontal: 18, fontSize: text.body.fontSize, iconSize: 18 },
+  sm: { height: 36, paddingHorizontal: 14, fontSize: text.bodyS.fontSize, iconSize: 16 },
 };
 
 const { scale: pressedScale, duration, easing } = pressFeedback.button;
@@ -34,6 +37,7 @@ const timing = { duration, easing: Easing.bezier(...easing) };
 
 export function Button({
   children,
+  icon: Icon,
   onPress,
   variant = 'primary',
   size = 'md',
@@ -45,6 +49,7 @@ export function Button({
   const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   const v = VARIANTS[variant];
   const s = SIZES[size];
+  const fg = disabled ? colors.textDisabled : v.fg;
 
   return (
     <Animated.View style={[{ alignSelf: fullWidth ? 'stretch' : 'flex-start' }, animatedStyle, style]}>
@@ -69,9 +74,8 @@ export function Button({
             borderColor: disabled ? 'transparent' : v.border,
           },
         ]}>
-        <Text
-          numberOfLines={1}
-          style={[styles.label, { fontSize: s.fontSize, color: disabled ? colors.textDisabled : v.fg }]}>
+        {Icon && <Icon color={fg} size={s.iconSize} strokeWidth={2} />}
+        <Text numberOfLines={1} style={[styles.label, { fontSize: s.fontSize, color: fg }]}>
           {children}
         </Text>
       </Pressable>

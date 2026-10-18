@@ -149,17 +149,24 @@ function clip(
 }
 
 /**
- * Traces every visible ring of every Country as one closed subpath each. Returns the number
- * of points drawn, for the measure panel.
+ * Traces every visible ring of every Country as one closed subpath each, into the sink of
+ * its Country's layer, `sinks[layers[country]]`: each layer is filled with its own colour,
+ * in a single pass over the geometry. Returns the number of points drawn, for the measure panel.
  *
  * Points behind the globe are pushed radially onto its rim, with the rim between them
  * filled in: a ring that crosses the horizon is then cut along the rim, exactly. That holds
  * as long as no ring surrounds the point opposite the view centre, which the ±60° tilt
  * limit guarantees for the Natural Earth outlines (Antarctica stays south of 60° S).
  */
-export function traceCountries(geometry: CountryGeometry, frame: Frame, detail: number, sink: PathSink): number {
+export function traceCountries(
+  geometry: CountryGeometry,
+  frame: Frame,
+  detail: number,
+  sinks: PathSink[],
+  layers: ArrayLike<number>,
+): number {
   'worklet';
-  const { xyz, level, ringStart, ringCap } = geometry;
+  const { xyz, level, ringStart, ringCap, ringCountry } = geometry;
   const { ex, ey, ez, nx, ny, nz, fx, fy, fz, s, cx, cy } = frame;
   const maxLevel = Math.floor(-2 * Math.log2(detail / (s * s)));
   const reach = reachAngle(frame);
@@ -266,6 +273,7 @@ export function traceCountries(geometry: CountryGeometry, frame: Frame, detail: 
       if (n < 3) continue;
     }
 
+    const sink = sinks[layers[ringCountry[r]]];
     sink.moveTo(points[0], points[1]);
     let prevX = points[0];
     let prevY = points[1];

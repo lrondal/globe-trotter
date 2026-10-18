@@ -5,9 +5,9 @@
 // are re-projected from the geometry the Atlas prepared once. React only renders on layout
 // and on button presses: selecting a Country is told to the parent, and the globe is memoised
 // so the sheet re-rendering never rebuilds its gestures and paths mid-flight.
-import { Canvas, Circle, Group, Path, usePathValue } from '@shopify/react-native-skia';
+import { Canvas, Circle, Group, notifyChange, Path, Skia, usePathValue } from '@shopify/react-native-skia';
 import { LocateFixed, Minus, Plus } from 'lucide-react-native';
-import { memo, useEffect, useImperativeHandle, useState, type Ref } from 'react';
+import { memo, useEffect, useImperativeHandle, useMemo, useState, type Ref } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -44,6 +44,7 @@ import {
   type View as GlobeView,
 } from './camera';
 import { countryAt } from './hitTest';
+import { LAYER, type Layer } from './layers';
 import { MeasurePanel, type Measures } from './MeasurePanel';
 import {
   DETAIL,
@@ -63,6 +64,8 @@ const LOCATION_RADIUS = 3;
 const LOCATION_RING = 1.5;
 /** Measures are reported to the panel this often, in milliseconds. */
 const MEASURE_EVERY = 500;
+/** One path per colour layer, in LAYER order. */
+const LAYERS = Object.values(LAYER);
 
 export type GlobeHandle = {
   /** Lets go of the selected Country: closes the sheet and lowers the globe back. */
@@ -80,10 +83,12 @@ type Props = {
   sheetHeight: SharedValue<number>;
   /** Index in the Atlas of the Country tapped, or null when the sea is tapped or the globe recentres. */
   onSelect: (country: number | null) => void;
+  /** The colour layer (see layers.ts) of each Country, by its index in the Atlas. */
+  layers: SharedValue<Layer[]>;
   ref?: Ref<GlobeHandle>;
 };
 
-export const Globe = memo(function Globe({ start, position, onRecenter, sheetHeight, onSelect, ref }: Props) {
+export const Globe = memo(function Globe({ start, position, onRecenter, sheetHeight, onSelect, layers, ref }: Props) {
   const insets = useSafeAreaInsets();
   const viewport = useSharedValue<Viewport>({ width: 0, height: 0 });
   const lon = useSharedValue(start.lon);
@@ -161,13 +166,25 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
 
   // The paths may read the camera through frame(): usePathValue notifies its own path,
   // so it re-runs every frame whatever its callback reads. Derived values do not.
-  const land = usePathValue((path) => {
-    'worklet';
+  // The Countries are traced once per frame into one path per colour layer, built here like
+  // usePathValue builds its one path, and the camera and layers are read directly.
+  const builders = useSharedValue(useMemo(() => LAYERS.map(() => Skia.PathBuilder.Make()), []));
+  const landPaths = useSharedValue(useMemo(() => LAYERS.map(() => Skia.Path.Make()), []));
+  useDerivedValue(() => {
     if (viewport.value.width === 0) return;
+    const camera = { lon: lon.value, lat: lat.value, zoom: zoom.value };
+    const sinks = builders.value;
+    for (const sink of sinks) sink.reset();
     const start = performance.now();
-    points.value = traceCountries(countryGeometry, frame(), detailArea, path);
+    points.value = traceCountries(countryGeometry, frameFor(camera, viewport.value, lift.value), detailArea, sinks, layers.value);
+    landPaths.value = sinks.map((sink) => sink.build());
     buildMs.value = performance.now() - start;
+    notifyChange(landPaths);
   });
+  const land = useDerivedValue(() => landPaths.value[LAYER.land]);
+  const visited = useDerivedValue(() => landPaths.value[LAYER.visited]);
+  const wish = useDerivedValue(() => landPaths.value[LAYER.wish]);
+  const outlineOnly = useDerivedValue(() => landPaths.value[LAYER.outline]);
   const graticule = usePathValue((path) => {
     'worklet';
     if (viewport.value.width === 0) return;
@@ -311,7 +328,11 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
           <Circle cx={cx} cy={cy} r={r} color={colors.globeOcean} />
           <Path path={graticule} style="stroke" strokeWidth={0.5} color={colors.globeGraticule} />
           <Path path={land} color={colors.globeLand} />
-          <Path path={land} style="stroke" strokeWidth={0.5} color={colors.globeStroke} />
+          <Path path={visited} color={colors.stateVisited} />
+          <Path path={wish} color={colors.stateWish} />
+          {[land, visited, wish, outlineOnly].map((path, i) => (
+            <Path key={i} path={path} style="stroke" strokeWidth={0.5} color={colors.globeStroke} />
+          ))}
           <Group opacity={dotOpacity}>
             <Circle cx={dotX} cy={dotY} r={LOCATION_RADIUS + LOCATION_RING} color={colors.paper0} />
             <Circle cx={dotX} cy={dotY} r={LOCATION_RADIUS} color={colors.globeLocation} />

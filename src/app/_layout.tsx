@@ -15,6 +15,7 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
+import { JournalProvider } from '@/journal/JournalProvider';
 import { LocationProvider, useLocation } from '@/location/LocationProvider';
 import { colors } from '@/theme/tokens';
 
@@ -24,9 +25,11 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   return (
-    <LocationProvider>
-      <App />
-    </LocationProvider>
+    <JournalProvider>
+      <LocationProvider>
+        <App />
+      </LocationProvider>
+    </JournalProvider>
   );
 }
 

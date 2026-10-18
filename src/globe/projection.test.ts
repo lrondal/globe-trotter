@@ -2,7 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { frameFor, projectPoint } from './projection.ts';
+import { decodeCountries } from '../atlas/countries.ts';
+import { frameFor, projectPoint, traceCountries, type PathSink } from './projection.ts';
 
 // A 402 × 700 pt globe screen: radius 196.98 at zoom 1, centred at (201, 398).
 const viewport = { width: 402, height: 700 };
@@ -29,4 +30,30 @@ test('a point 30° north of the centre is drawn above it', () => {
 
 test('a point on the far side of the globe is hidden', () => {
   assert.equal(projectPoint(frameFor({ lon: 10, lat: 45, zoom: 1 }, viewport), { lon: -170, lat: -45 }).visible, false);
+});
+
+/** A 5° square Country with its south-west corner at (lon, lat), as one arc in 1e-4 degrees. */
+const square = (lon: number, lat: number) => [lon * 1e4, lat * 1e4, 0, 5e4, 0, 0, 0, 5e4, 0, -5e4, 0, 0, 0, -5e4, 0];
+
+/** Counts the rings traced into it. */
+function ringCounter() {
+  const sink = { rings: 0, moveTo: () => sink.rings++, lineTo() {}, conicTo() {}, close() {} };
+  return sink satisfies PathSink;
+}
+
+test('each Country is traced into the path of its layer, so it takes the colour of that layer', () => {
+  const { geometry } = decodeCountries({
+    countries: [
+      { id: '250', name: 'France', polygons: [[[0]]] },
+      { id: '724', name: 'Espagne', polygons: [[[1]]] },
+      { id: '620', name: 'Portugal', polygons: [[[2]]] },
+    ],
+    arcs: [square(0, 0), square(-10, 0), square(-20, 0)],
+  });
+  const sinks = [ringCounter(), ringCounter(), ringCounter()];
+  traceCountries(geometry, frameFor({ lon: -10, lat: 0, zoom: 1 }, viewport), 0.25, sinks, [2, 0, 2]);
+  assert.deepEqual(
+    sinks.map((sink) => sink.rings),
+    [1, 0, 2],
+  );
 });
