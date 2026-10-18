@@ -147,3 +147,93 @@ test('the Mark of an Island survives closing and reopening the app', () => {
   assert.equal(reopened.status(crete), 'visited');
   assert.equal(reopened.status(greece), 'unexplored');
 });
+
+/** The Todos of `place` as the user reads them: text and tick, in order. */
+const todosOf = (j: ReturnType<typeof journal>, place: typeof japan) =>
+  j.todos(place).map(({ text, done }) => ({ text, done }));
+
+test('Todos added to a Place are listed in the order they were added, unchecked', () => {
+  const j = journal();
+  j.addTodo(japan, 'Réserver le ryokan');
+  j.addTodo(japan, 'Voir le Fushimi Inari');
+  assert.deepEqual(todosOf(j, japan), [
+    { text: 'Réserver le ryokan', done: false },
+    { text: 'Voir le Fushimi Inari', done: false },
+  ]);
+});
+
+test('a checked Todo stays checked after reopening the app, and can be unchecked', () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas });
+  j.addTodo(japan, 'Réserver le ryokan');
+  const inari = j.addTodo(japan, 'Voir le Fushimi Inari');
+  j.checkTodo(inari.id, true);
+  const reopened = openJournal({ db, atlas });
+  assert.deepEqual(todosOf(reopened, japan), [
+    { text: 'Réserver le ryokan', done: false },
+    { text: 'Voir le Fushimi Inari', done: true },
+  ]);
+  reopened.checkTodo(inari.id, false);
+  assert.equal(reopened.todos(japan)[1].done, false);
+});
+
+test('a Todo moved by hand keeps its new place in the list after reopening the app', () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas });
+  j.addTodo(japan, 'Réserver le ryokan');
+  j.addTodo(japan, 'Acheter le JR Pass');
+  const inari = j.addTodo(japan, 'Voir le Fushimi Inari');
+  j.moveTodo(inari.id, 0);
+  const order = ['Voir le Fushimi Inari', 'Réserver le ryokan', 'Acheter le JR Pass'];
+  assert.deepEqual(j.todos(japan).map((t) => t.text), order);
+  assert.deepEqual(openJournal({ db, atlas }).todos(japan).map((t) => t.text), order);
+  j.moveTodo(inari.id, 2);
+  assert.deepEqual(
+    openJournal({ db, atlas }).todos(japan).map((t) => t.text),
+    ['Réserver le ryokan', 'Acheter le JR Pass', 'Voir le Fushimi Inari'],
+  );
+});
+
+test('a deleted Todo is gone for good, and the next one added still comes last', () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas });
+  const ryokan = j.addTodo(japan, 'Réserver le ryokan');
+  j.addTodo(japan, 'Acheter le JR Pass');
+  j.addTodo(japan, 'Voir le Fushimi Inari');
+  j.deleteTodo(ryokan.id);
+  j.addTodo(japan, 'Goûter un okonomiyaki');
+  const order = ['Acheter le JR Pass', 'Voir le Fushimi Inari', 'Goûter un okonomiyaki'];
+  assert.deepEqual(j.todos(japan).map((t) => t.text), order);
+  assert.deepEqual(openJournal({ db, atlas }).todos(japan).map((t) => t.text), order);
+});
+
+test('a Note survives reopening the app, and erasing it lets an unmarked Place go', () => {
+  const db = memoryDatabase();
+  openJournal({ db, atlas }).writeNote(crete, 'Les gorges de Samaria');
+  const reopened = openJournal({ db, atlas });
+  assert.equal(reopened.place(crete)?.note, 'Les gorges de Samaria');
+  reopened.writeNote(crete, '');
+  assert.equal(openJournal({ db, atlas }).place(crete), null);
+});
+
+test('a Note or Todos on a Place without a Mark leave it Unexplored, but in the Journal', () => {
+  const j = journal();
+  j.writeNote(france, 'Le marché de Sarlat');
+  const ryokan = j.addTodo(japan, 'Réserver le ryokan');
+  assert.equal(j.status(france), 'unexplored');
+  assert.equal(j.status(japan), 'unexplored');
+  assert.deepEqual(j.counts(), { visited: 0, wish: 0, unexplored: 4 });
+  assert.notEqual(j.place(japan), null);
+  j.deleteTodo(ryokan.id);
+  assert.equal(j.place(japan), null);
+});
+
+test('removing the Mark keeps the Todos of the Place', () => {
+  const j = journal();
+  j.mark(japan, 'wish');
+  j.addTodo(japan, 'Réserver le ryokan');
+  j.mark(japan, null);
+  assert.equal(j.status(japan), 'unexplored');
+  assert.notEqual(j.place(japan), null);
+  assert.deepEqual(todosOf(j, japan), [{ text: 'Réserver le ryokan', done: false }]);
+});

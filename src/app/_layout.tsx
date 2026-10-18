@@ -15,6 +15,7 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
+import { ShowOnGlobeProvider } from '@/globe/ShowOnGlobeProvider';
 import { JournalProvider } from '@/journal/JournalProvider';
 import { LocationProvider, useLocation } from '@/location/LocationProvider';
 import { colors } from '@/theme/tokens';
@@ -27,7 +28,9 @@ export default function RootLayout() {
   return (
     <JournalProvider>
       <LocationProvider>
-        <App />
+        <ShowOnGlobeProvider>
+          <App />
+        </ShowOnGlobeProvider>
       </LocationProvider>
     </JournalProvider>
   );

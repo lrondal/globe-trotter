@@ -1,7 +1,7 @@
 // The Place sheet: a paper sheet over the bottom of the globe, dragged between peek, half and
 // full height. Its height is a shared value the Globe writes too, so a tap on a Country opens
 // it from the UI thread, before React has rendered its content.
-import { Bookmark, BookmarkMinus, Check, X } from 'lucide-react-native';
+import { Bookmark, BookmarkMinus, Check, NotebookPen, X } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -11,12 +11,19 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { Button } from '@/components/Button';
 import { StatusBadge } from '@/components/StatusBadge';
 import type { Mark, Status } from '@/journal/journal';
-import { colors, layout, radius, shadow, space, text } from '@/theme/tokens';
+import { colors, fonts, layout, radius, shadow, space, text } from '@/theme/tokens';
 
 import { formatCoordinates } from './coordinates';
 import { detentHeight, restingDetent, sheetTiming } from './detents';
 
-export type SheetPlace = { name: string; lon: number; lat: number; status: Status };
+export type SheetPlace = {
+  name: string;
+  lon: number;
+  lat: number;
+  status: Status;
+  /** The Place's Note, of which the sheet shows the start; empty when it has none. */
+  note: string;
+};
 
 type Props = {
   /** Points of sheet showing above the bottom of the screen; 0 when closed. */
@@ -27,10 +34,14 @@ type Props = {
   onClose: () => void;
   /** Sets the Mark of the Place shown; null is Retirer. */
   onMark: (mark: Mark | null) => void;
+  /** « Ouvrir le carnet »: opens the Note screen of the Place shown. */
+  onOpenNote: () => void;
 };
 
+/** Lines of the Note the sheet shows before cutting it off. */
+const EXCERPT_LINES = 3;
 
-export function PlaceSheet({ height, screenHeight, place, onClose, onMark }: Props) {
+export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpenNote }: Props) {
   // The last Place stays on the sheet while it slides away.
   const [shown, setShown] = useState(place);
   if (place && place !== shown) setShown(place);
@@ -82,7 +93,20 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark }: Pro
           )}
         </View>
       </GestureDetector>
-      {shown && <MarkActions status={shown.status} onMark={onMark} />}
+      {shown && (
+        <View style={styles.body}>
+          <MarkActions status={shown.status} onMark={onMark} />
+          {shown.note !== '' && (
+            <Text style={styles.excerpt} numberOfLines={EXCERPT_LINES}>
+              « {shown.note.trim()} »
+            </Text>
+          )}
+          {/* For every Status: a Note or Todos can be written before marking the Place. */}
+          <Button variant="secondary" icon={NotebookPen} fullWidth onPress={onOpenNote}>
+            Ouvrir le carnet
+          </Button>
+        </View>
+      )}
     </Animated.View>
   );
 }
@@ -166,10 +190,20 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontVariant: ['tabular-nums'],
   },
+  body: {
+    gap: 18,
+    paddingHorizontal: layout.screenGutter,
+  },
   actions: {
     flexDirection: 'row',
     gap: 10,
-    paddingHorizontal: layout.screenGutter,
+  },
+  // Instrument Serif italic 20/1.3, inside « ».
+  excerpt: {
+    fontFamily: fonts.displayItalic,
+    fontSize: 20,
+    lineHeight: 26,
+    color: colors.textPrimary,
   },
   action: {
     flex: 1,

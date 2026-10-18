@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
@@ -9,6 +10,7 @@ import { Toast } from '@/components/Toast';
 import type { Point } from '@/globe/camera';
 import { Globe, type GlobeHandle } from '@/globe/Globe';
 import { layerOf, type Filters } from '@/globe/layers';
+import { useShowOnGlobe } from '@/globe/ShowOnGlobeProvider';
 import type { Journal, Mark, Status } from '@/journal/journal';
 import { useJournal } from '@/journal/JournalProvider';
 import { recenterAction } from '@/location/launch';
@@ -59,8 +61,30 @@ export default function GlobeScreen() {
   const place = useMemo<SheetPlace | null>(() => {
     if (selected === null) return null;
     const { lon, lat } = footprintOf(countryGeometry, selected);
-    return { name: countries[selected].name, lon, lat, status: journal.status(places[selected]) };
+    const ref = places[selected];
+    return {
+      name: countries[selected].name,
+      lon,
+      lat,
+      status: journal.status(ref),
+      note: journal.place(ref)?.note ?? '',
+    };
   }, [selected, journal, version]);
+
+  // The location link of a Note, say: fly to its Place and open its sheet.
+  const { pending, shown } = useShowOnGlobe();
+  useEffect(() => {
+    if (!pending) return;
+    const index = places.findIndex((p) => p.level === pending.level && p.id === pending.id);
+    if (index >= 0) globe.current?.select(index);
+    shown();
+  }, [pending, shown]);
+
+  const onOpenNote = () => {
+    if (selected === null) return;
+    const { level, id } = places[selected];
+    router.push({ pathname: '/note/[level]/[id]', params: { level, id } });
+  };
 
   const onClose = useCallback(() => {
     globe.current?.deselect();
@@ -121,6 +145,7 @@ export default function GlobeScreen() {
           place={place}
           onClose={onClose}
           onMark={onMark}
+          onOpenNote={onOpenNote}
         />
       )}
       {/* Beside the map buttons; above the sheet, so the toast of a Mark shows over it. */}
