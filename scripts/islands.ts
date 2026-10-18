@@ -16,14 +16,23 @@ export type IslandSpec = {
 };
 
 export const ISLANDS: IslandSpec[] = [
-  // France
+  // France: Guadeloupe is Basse-Terre and Grande-Terre, with Marie-Galante.
   { id: 'i-corse', name: 'Corse', countryId: '250', points: [[9.1, 42.15]] },
-  { id: 'i-guadeloupe', name: 'Guadeloupe', countryId: '250', points: [[-61.68, 16.15], [-61.45, 16.3]] },
+  {
+    id: 'i-guadeloupe',
+    name: 'Guadeloupe',
+    countryId: '250',
+    points: [
+      [-61.68, 16.15],
+      [-61.45, 16.3],
+      [-61.26, 15.94],
+    ],
+  },
   { id: 'i-martinique', name: 'Martinique', countryId: '250', points: [[-61.0, 14.65]] },
   { id: 'i-reunion', name: 'La Réunion', countryId: '250', points: [[55.53, -21.12]] },
   { id: 'i-mayotte', name: 'Mayotte', countryId: '250', points: [[45.15, -12.82]] },
   { id: 'i-guyane', name: 'Guyane', countryId: '250', points: [[-53.0, 4.0]] },
-  // Espagne
+  // Spain
   { id: 'i-majorque', name: 'Majorque', countryId: '724', points: [[2.95, 39.62]] },
   { id: 'i-minorque', name: 'Minorque', countryId: '724', points: [[4.1, 39.97]] },
   { id: 'i-ibiza', name: 'Ibiza', countryId: '724', points: [[1.4, 38.98]] },
@@ -50,11 +59,11 @@ export const ISLANDS: IslandSpec[] = [
       [-25.11, 36.98],
     ],
   },
-  // Italie
+  // Italy
   { id: 'i-sicile', name: 'Sicile', countryId: '380', points: [[14.2, 37.5]] },
   { id: 'i-sardaigne', name: 'Sardaigne', countryId: '380', points: [[9.0, 40.1]] },
   { id: 'i-elbe', name: 'Elbe', countryId: '380', points: [[10.25, 42.77]] },
-  // Grèce
+  // Greece
   { id: 'i-crete', name: 'Crète', countryId: '300', points: [[24.9, 35.25]] },
   { id: 'i-santorin', name: 'Santorin', countryId: '300', points: [[25.43, 36.42]] },
   { id: 'i-mykonos', name: 'Mykonos', countryId: '300', points: [[25.35, 37.45]] },
@@ -66,12 +75,12 @@ export const ISLANDS: IslandSpec[] = [
   { id: 'i-zante', name: 'Zante', countryId: '300', points: [[20.78, 37.78]] },
   { id: 'i-cephalonie', name: 'Céphalonie', countryId: '300', points: [[20.55, 38.2]] },
   { id: 'i-lesbos', name: 'Lesbos', countryId: '300', points: [[26.3, 39.3]] },
-  // Croatie
+  // Croatia
   { id: 'i-hvar', name: 'Hvar', countryId: '191', points: [[16.65, 43.15]] },
   { id: 'i-brac', name: 'Brač', countryId: '191', points: [[16.65, 43.32]] },
   { id: 'i-korcula', name: 'Korčula', countryId: '191', points: [[16.9, 42.95]] },
   { id: 'i-krk', name: 'Krk', countryId: '191', points: [[14.6, 45.08]] },
-  // Royaume-Uni
+  // United Kingdom
   { id: 'i-skye', name: 'Skye', countryId: '826', points: [[-6.2, 57.3]] },
   { id: 'i-lewis-et-harris', name: 'Lewis-et-Harris', countryId: '826', points: [[-6.6, 58.2]] },
   {
@@ -97,7 +106,7 @@ export const ISLANDS: IslandSpec[] = [
     ],
   },
   { id: 'i-wight', name: 'Île de Wight', countryId: '826', points: [[-1.3, 50.67]] },
-  // Allemagne, Danemark, Suède, Estonie, Norvège
+  // Germany, Denmark, Sweden, Estonia, Norway
   { id: 'i-sylt', name: 'Sylt', countryId: '276', points: [[8.3, 54.9]] },
   { id: 'i-rugen', name: 'Rügen', countryId: '276', points: [[13.4, 54.4]] },
   { id: 'i-bornholm', name: 'Bornholm', countryId: '208', points: [[14.9, 55.12]] },
@@ -112,13 +121,13 @@ export const ISLANDS: IslandSpec[] = [
       [12.99, 67.95],
     ],
   },
-  // Afrique, Moyen-Orient
+  // Africa, Middle East
   { id: 'i-djerba', name: 'Djerba', countryId: '788', points: [[10.9, 33.8]] },
   { id: 'i-zanzibar', name: 'Zanzibar', countryId: '834', points: [[39.3, -6.1]] },
   { id: 'i-pemba', name: 'Pemba', countryId: '834', points: [[39.75, -5.2]] },
   { id: 'i-nosy-be', name: 'Nosy Be', countryId: '450', points: [[48.27, -13.32]] },
   { id: 'i-socotra', name: 'Socotra', countryId: '887', points: [[53.9, 12.5]] },
-  // Inde
+  // India
   {
     id: 'i-andaman',
     name: 'Îles Andaman',
@@ -131,7 +140,7 @@ export const ISLANDS: IslandSpec[] = [
       [92.7, 12.9],
     ],
   },
-  // Asie du Sud-Est
+  // South-East Asia
   { id: 'i-phuket', name: 'Phuket', countryId: '764', points: [[98.35, 7.95]] },
   { id: 'i-koh-samui', name: 'Koh Samui', countryId: '764', points: [[100.0, 9.5]] },
   { id: 'i-koh-phangan', name: 'Koh Phangan', countryId: '764', points: [[100.03, 9.75]] },
@@ -155,13 +164,13 @@ export const ISLANDS: IslandSpec[] = [
   { id: 'i-cebu', name: 'Cebu', countryId: '608', points: [[123.85, 10.3]] },
   { id: 'i-bohol', name: 'Bohol', countryId: '608', points: [[124.2, 9.85]] },
   { id: 'i-siargao', name: 'Siargao', countryId: '608', points: [[126.05, 9.85]] },
-  // Asie de l'Est
+  // East Asia
   { id: 'i-hainan', name: 'Hainan', countryId: '156', points: [[109.8, 19.2]] },
   { id: 'i-jeju', name: 'Jeju', countryId: '410', points: [[126.55, 33.38]] },
   { id: 'i-okinawa', name: 'Okinawa', countryId: '392', points: [[127.8, 26.35]] },
   { id: 'i-ishigaki', name: 'Ishigaki', countryId: '392', points: [[124.18, 24.42]] },
   { id: 'i-yakushima', name: 'Yakushima', countryId: '392', points: [[130.53, 30.35]] },
-  // États-Unis: Maui with Molokai and Lanai (Maui County; Kahoolawe is not on the 50m map), Kauai with Niihau.
+  // United States: Maui with Molokai and Lanai (Maui County; Kahoolawe is not on the 50m map), Kauai with Niihau.
   { id: 'i-alaska', name: 'Alaska', countryId: '840', points: [[-150, 64]], box: [172, 50, -129, 72] },
   { id: 'i-oahu', name: 'Oahu', countryId: '840', points: [[-158.0, 21.48]] },
   {
@@ -188,7 +197,7 @@ export const ISLANDS: IslandSpec[] = [
   { id: 'i-ile-du-prince-edouard', name: 'Île-du-Prince-Édouard', countryId: '124', points: [[-63.3, 46.35]] },
   { id: 'i-terre-neuve', name: 'Terre-Neuve', countryId: '124', points: [[-56.0, 48.8]] },
   { id: 'i-vancouver', name: 'Île de Vancouver', countryId: '124', points: [[-125.5, 49.6]] },
-  // Amérique latine
+  // Latin America
   { id: 'i-cozumel', name: 'Cozumel', countryId: '484', points: [[-86.92, 20.42]] },
   { id: 'i-roatan', name: 'Roatán', countryId: '340', points: [[-86.55, 16.35]] },
   { id: 'i-margarita', name: 'Margarita', countryId: '862', points: [[-63.9, 11.0]] },
@@ -218,7 +227,7 @@ export const ISLANDS: IslandSpec[] = [
       [-64.3, -54.78],
     ],
   },
-  // Australie
+  // Australia
   { id: 'i-tasmanie', name: 'Tasmanie', countryId: '036', points: [[146.6, -42.0]] },
   { id: 'i-kangaroo-island', name: 'Kangaroo Island', countryId: '036', points: [[137.2, -35.8]] },
   { id: 'i-kgari', name: "K'gari", countryId: '036', points: [[153.1, -25.25]] },

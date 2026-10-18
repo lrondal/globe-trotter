@@ -114,11 +114,9 @@ function carveIslands(islands: IslandSpec[], byId: Map<string, Country>, arcs: P
       taken.add(k);
     }
     if (island.box) {
-      const [west, south, east, north] = island.box;
-      const inBox = ([lon, lat]: [number, number]) =>
-        lat >= south && lat <= north && (west <= east ? lon >= west && lon <= east : lon >= west || lon <= east);
+      const box = island.box;
       const before = taken.size;
-      own.forEach((shape, k) => inBox(geoCentroid(shape)) && taken.add(k));
+      own.forEach((shape, k) => inBox(box, geoCentroid(shape)) && taken.add(k));
       if (taken.size === before) throw new Error(`${island.id}: its box holds no other polygon of ${country.name}`);
     }
     const polygons = [...taken].map((k) => country.polygons[k]);
@@ -131,6 +129,11 @@ function carveIslands(islands: IslandSpec[], byId: Map<string, Country>, arcs: P
   });
   for (const country of byId.values()) country.polygons = country.polygons.filter((p) => !claimedBy.has(p));
   return carved;
+}
+
+/** Whether a point is in a box; a box whose west edge is east of its east edge crosses the antimeridian. */
+function inBox([west, south, east, north]: NonNullable<IslandSpec['box']>, [lon, lat]: [number, number]) {
+  return lat >= south && lat <= north && (west <= east ? lon >= west && lon <= east : lon >= west || lon <= east);
 }
 
 /** A polygon of arc indices as a GeoJSON Polygon in degrees. */
@@ -186,7 +189,7 @@ function encodeArc(arc: Point[]): number[] {
 function checkOutline(country: Country, arcs: Point[][]) {
   const geometry = {
     type: 'MultiPolygon' as const,
-    coordinates: country.polygons.map((p) => p.map((ring) => ringCoordinates(ring, arcs))),
+    coordinates: country.polygons.map((p) => polygonShape(p, arcs).coordinates),
   };
   const area = geoArea(geometry);
   if (country.polygons.length === 0 || area === 0 || area > 2 * Math.PI) {
