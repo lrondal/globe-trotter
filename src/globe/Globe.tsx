@@ -34,6 +34,7 @@ import {
   drag,
   fit,
   fly,
+  holdZoom,
   pinch,
   release,
   zoomIn,
@@ -48,6 +49,7 @@ import { LAYER, type Layer } from './layers';
 import { MeasurePanel, type Measures } from './MeasurePanel';
 import {
   DETAIL,
+  discRadius,
   frameFor,
   globeCenterY,
   globeRadius,
@@ -66,6 +68,8 @@ const LOCATION_RING = 1.5;
 const MEASURE_EVERY = 500;
 /** One path per colour layer, in LAYER order. */
 const LAYERS = Object.values(LAYER);
+/** After a pinch, the finger left down drags the globe once it has moved this far, in points. */
+const DRAG_AFTER_PINCH = 10;
 
 export type GlobeHandle = {
   /** Lets go of the selected Country: closes the sheet and lowers the globe back. */
@@ -97,9 +101,16 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   const lift = useSharedValue(0);
   const spin = useSharedValue<Spin | null>(null);
   const flight = useSharedValue<{ from: Shot; to: Shot; elapsed: number } | null>(null);
-  const pinching = useSharedValue(false);
   const pinchedThisTouch = useSharedValue(false);
+  /** Points the finger left down after a pinch still has to move before it drags the globe. */
+  const dragSlack = useSharedValue(0);
+  /** Fingers down at the last drag update. */
+  const dragPointers = useSharedValue(0);
   const pinchStartZoom = useSharedValue(start.zoom);
+  /** The point between the pinching fingers at the last update, from the globe's centre then. */
+  const pinchFocal = useSharedValue({ x: 0, y: 0 });
+  /** 1 while + is held down, -1 while − is, 0 otherwise. */
+  const holding = useSharedValue<0 | 1 | -1>(0);
   const shownPosition = useSharedValue(position);
 
   const [detail, setDetail] = useState<Detail>('standard');
@@ -131,6 +142,7 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
     const half = detentHeight('half', screenHeight);
     const to = fit(footprintOf(countryGeometry, country), viewport.value, screenHeight - half);
     spin.value = null;
+    holding.value = 0;
     cancelAnimation(zoom);
     cancelAnimation(lift);
     flight.value = { from: { view: view(), lift: lift.value }, to, elapsed: 0 };
@@ -155,6 +167,7 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   const flyTo = (point: Point) => {
     'worklet';
     spin.value = null;
+    holding.value = 0;
     cancelAnimation(zoom);
     cancelAnimation(lift);
     flight.value = { from: { view: view(), lift: lift.value }, to: { view: centerOn(view(), point), lift: 0 }, elapsed: 0 };
@@ -192,7 +205,9 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   });
   const cx = useDerivedValue(() => viewport.value.width / 2);
   const cy = useDerivedValue(() => globeCenterY(viewport.value) - lift.value);
-  const r = useDerivedValue(() => globeRadius(viewport.value) * zoom.value);
+  const r = useDerivedValue(() =>
+    discRadius(frameFor({ lon: lon.value, lat: lat.value, zoom: zoom.value }, viewport.value, lift.value)),
+  );
 
   useEffect(() => {
     shownPosition.value = position;
@@ -229,29 +244,55 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
       spin.value = null;
       stopFlight();
       pinchedThisTouch.value = false;
+      dragSlack.value = 0;
+    })
+    .onStart((e) => {
+      dragPointers.value = e.numberOfPointers;
     })
     .onChange((e) => {
-      if (pinching.value) return;
+      // When a finger lands or lifts, the point between the fingers jumps: not a drag.
+      if (e.numberOfPointers !== dragPointers.value) {
+        dragPointers.value = e.numberOfPointers;
+        return;
+      }
+      // While pinching, the pinch moves the globe.
+      if (pinchedThisTouch.value && e.numberOfPointers > 1) return;
+      // The finger left down after a pinch drags once it really moves, not as it slips
+      // while the other lifts: a visible slide at deep zoom.
+      if (dragSlack.value > 0) {
+        dragSlack.value -= Math.hypot(e.changeX, e.changeY);
+        return;
+      }
       turnTo(drag(view(), e.changeX, e.changeY, globeRadius(viewport.value)));
     })
     .onEnd((e) => {
-      if (pinchedThisTouch.value) return;
+      // Lifting the fingers after a pinch, without dragging since, leaves the globe still.
+      if (pinchedThisTouch.value && dragSlack.value > 0) return;
       spin.value = release(view(), e.velocityX, e.velocityY, globeRadius(viewport.value));
     });
   const pinchGesture = Gesture.Pinch()
-    .onStart(() => {
-      pinching.value = true;
+    .onStart((e) => {
       pinchedThisTouch.value = true;
+      dragSlack.value = DRAG_AFTER_PINCH;
       spin.value = null;
       stopFlight();
       cancelAnimation(zoom);
+      holding.value = 0;
       pinchStartZoom.value = zoom.value;
+      const f = frame();
+      pinchFocal.value = { x: e.focalX - f.cx, y: e.focalY - f.cy };
     })
     .onUpdate((e) => {
-      zoom.value = pinch(view(), pinchStartZoom.value, e.scale).zoom;
-    })
-    .onFinalize(() => {
-      pinching.value = false;
+      // As a finger lifts, the point between the fingers jumps to the other one: ignore it.
+      if (e.numberOfPointers < 2) return;
+      // The ground under the fingers stays under them, so a pinch zooms into what it is on.
+      // Measured from the globe's centre, which may still be rising above the sheet.
+      const f = frame();
+      const focal = { x: e.focalX - f.cx, y: e.focalY - f.cy };
+      const next = pinch(view(), pinchStartZoom.value, e.scale, pinchFocal.value, focal, globeRadius(viewport.value));
+      pinchFocal.value = focal;
+      turnTo(next);
+      zoom.value = next.zoom;
     });
   // A tap fails as soon as the finger moves enough to turn the globe.
   const gestures = Gesture.Race(Gesture.Simultaneous(pan, pinchGesture), tap);
@@ -259,6 +300,7 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   useFrameCallback((frame) => {
     'worklet';
     const dt = frame.timeSincePreviousFrame ?? 0;
+    if (holding.value !== 0) zoom.value = holdZoom(view(), holding.value, dt).zoom;
     const spinning = spin.value;
     if (spinning) {
       const next = coast(view(), spinning, dt);
@@ -307,6 +349,16 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   };
   // On the UI thread, like the flight it may interrupt.
   const zoomWith = (step: (v: GlobeView) => GlobeView) => scheduleOnUI(zoomBy, step);
+  // Holding + or − zooms on and on until let go, so the whole range takes seconds, not presses.
+  const hold = (direction: 0 | 1 | -1) => {
+    'worklet';
+    if (direction !== 0) {
+      stopFlight();
+      cancelAnimation(zoom);
+    }
+    holding.value = direction;
+  };
+  const holdWith = (direction: 0 | 1 | -1) => scheduleOnUI(hold, direction);
   const recenter = async () => {
     const point = await onRecenter();
     if (point) scheduleOnUI(flyTo, point);
@@ -343,8 +395,20 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
 
       <Animated.View style={[styles.mapButtons, mapButtonsStyle]} pointerEvents="box-none">
         <IconButton icon={LocateFixed} label="Recentrer" onPress={recenter} />
-        <IconButton icon={Plus} label="Zoomer" onPress={() => zoomWith(zoomIn)} />
-        <IconButton icon={Minus} label="Dézoomer" onPress={() => zoomWith(zoomOut)} />
+        <IconButton
+          icon={Plus}
+          label="Zoomer"
+          onPress={() => zoomWith(zoomIn)}
+          onLongPress={() => holdWith(1)}
+          onPressOut={() => holdWith(0)}
+        />
+        <IconButton
+          icon={Minus}
+          label="Dézoomer"
+          onPress={() => zoomWith(zoomOut)}
+          onLongPress={() => holdWith(-1)}
+          onPressOut={() => holdWith(0)}
+        />
       </Animated.View>
 
       {__DEV__ && (

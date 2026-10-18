@@ -90,13 +90,27 @@ export function projectPoint(frame: Frame, point: Point) {
   };
 }
 
+/** Distance in points from the globe's centre to the farthest corner of the screen. */
+function farthestCorner(frame: Frame) {
+  'worklet';
+  return Math.hypot(Math.max(frame.cx, frame.width - frame.cx), Math.max(frame.cy, frame.height - frame.cy));
+}
+
 /** Angular radius around the view centre that can reach the screen. */
 function reachAngle(frame: Frame) {
   'worklet';
-  const dx = Math.max(frame.cx, frame.width - frame.cx);
-  const dy = Math.max(frame.cy, frame.height - frame.cy);
-  const halfDiagonal = Math.hypot(dx, dy);
-  return frame.s > halfDiagonal ? Math.asin(halfDiagonal / frame.s) : Math.PI / 2;
+  const corner = farthestCorner(frame);
+  return frame.s > corner ? Math.asin(corner / frame.s) : Math.PI / 2;
+}
+
+/**
+ * Radius to draw the globe's disc and rim with. Once the disc covers the whole screen, one
+ * just past the farthest corner draws the same, rim hidden: Skia, in float32, then never
+ * gets a radius of hundreds of thousands of points.
+ */
+export function discRadius(frame: Frame) {
+  'worklet';
+  return Math.min(frame.s, farthestCorner(frame) + 8);
 }
 
 /** Rings are clipped this far outside the screen, so the clip edges and their strokes stay hidden. */
@@ -332,8 +346,10 @@ function circle(
     }
   };
 
-  // Facing the user where P(t)·f = c0 + α cos t + β sin t > 0.
-  const c0 = cX * fx + cY * fy + cZ * fz;
+  // Drawn where P(t)·f = c0 + α cos t + β sin t > 0 once less the cosine of the reach: facing
+  // the user and near enough to the view centre to reach the screen. Zoomed in, the rest of
+  // the circle lies far off screen, where Skia's float32 points would lose their precision.
+  const c0 = cX * fx + cY * fy + cZ * fz - Math.cos(reachAngle(frame));
   const α = aX * fx + aY * fy + aZ * fz;
   const β = bX * fx + bY * fy + bZ * fz;
   const ρ = Math.hypot(α, β);
