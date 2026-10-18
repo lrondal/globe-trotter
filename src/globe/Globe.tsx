@@ -65,6 +65,8 @@ const LOCATION_RADIUS = 3;
 const LOCATION_RING = 1.5;
 /** Measures are reported to the panel this often, in milliseconds. */
 const MEASURE_EVERY = 500;
+/** After a pinch, the finger left down drags the globe once it has moved this far, in points. */
+const DRAG_AFTER_PINCH = 10;
 
 export type GlobeHandle = {
   /** Lets go of the selected Country: closes the sheet and lowers the globe back. */
@@ -95,6 +97,10 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   const spin = useSharedValue<Spin | null>(null);
   const flight = useSharedValue<{ from: Shot; to: Shot; elapsed: number } | null>(null);
   const pinchedThisTouch = useSharedValue(false);
+  /** Points the finger left down after a pinch still has to move before it drags the globe. */
+  const dragSlack = useSharedValue(0);
+  /** Fingers down at the last drag update. */
+  const dragPointers = useSharedValue(0);
   const pinchStartZoom = useSharedValue(start.zoom);
   /** The point between the pinching fingers at the last update, from the globe's centre then. */
   const pinchFocal = useSharedValue({ x: 0, y: 0 });
@@ -221,20 +227,36 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
       spin.value = null;
       stopFlight();
       pinchedThisTouch.value = false;
+      dragSlack.value = 0;
+    })
+    .onStart((e) => {
+      dragPointers.value = e.numberOfPointers;
     })
     .onChange((e) => {
-      // After a pinch the globe stays put until every finger is up: the last finger lifted
-      // would otherwise drag it, a visible slide at deep zoom.
-      if (pinchedThisTouch.value) return;
+      // When a finger lands or lifts, the point between the fingers jumps: not a drag.
+      if (e.numberOfPointers !== dragPointers.value) {
+        dragPointers.value = e.numberOfPointers;
+        return;
+      }
+      // While pinching, the pinch moves the globe.
+      if (pinchedThisTouch.value && e.numberOfPointers > 1) return;
+      // The finger left down after a pinch drags once it really moves, not as it slips
+      // while the other lifts: a visible slide at deep zoom.
+      if (dragSlack.value > 0) {
+        dragSlack.value -= Math.hypot(e.changeX, e.changeY);
+        return;
+      }
       turnTo(drag(view(), e.changeX, e.changeY, globeRadius(viewport.value)));
     })
     .onEnd((e) => {
-      if (pinchedThisTouch.value) return;
+      // Lifting the fingers after a pinch, without dragging since, leaves the globe still.
+      if (pinchedThisTouch.value && dragSlack.value > 0) return;
       spin.value = release(view(), e.velocityX, e.velocityY, globeRadius(viewport.value));
     });
   const pinchGesture = Gesture.Pinch()
     .onStart((e) => {
       pinchedThisTouch.value = true;
+      dragSlack.value = DRAG_AFTER_PINCH;
       spin.value = null;
       stopFlight();
       cancelAnimation(zoom);
