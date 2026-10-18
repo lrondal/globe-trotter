@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 import { openJournal } from './journal.ts';
 import { memoryDatabase } from './memoryDatabase.ts';
 
-const atlas = { countries: [{ id: '250' }, { id: '392' }, { id: '620' }, { id: 'x-kosovo' }] };
+const atlas = {
+  places: ['250', '392', '620', 'x-kosovo'].map((id) => ({ level: 'country', id }) as const),
+};
 const france = { level: 'country', id: '250' } as const;
 
 function journal(now = new Date(2026, 9, 18)) {
@@ -104,4 +106,44 @@ test('undoing the removal of a Mark gives back the Mark and its Visit date', () 
   j.undo();
   assert.equal(j.status(france), 'visited');
   assert.equal(j.place(france)?.visitDate, '2019-07');
+});
+
+const greece = { level: 'country', id: '300' } as const;
+const crete = { level: 'island', id: 'i-crete' } as const;
+
+test('an Island marked Visited leaves its Country Unexplored', () => {
+  const j = journal();
+  j.mark(crete, 'visited');
+  assert.equal(j.status(crete), 'visited');
+  assert.equal(j.status(greece), 'unexplored');
+});
+
+test('a Country marked Visited leaves its Islands Unexplored', () => {
+  const j = journal();
+  j.mark(greece, 'visited');
+  assert.equal(j.status(crete), 'unexplored');
+});
+
+test('the filter chips count Islands alongside Countries', () => {
+  const places = [france, greece, crete, { level: 'island', id: 'i-corse' } as const];
+  const j = openJournal({ db: memoryDatabase(), atlas: { places } });
+  j.mark(crete, 'visited');
+  assert.deepEqual(j.counts(), { visited: 1, wish: 0, unexplored: 3 });
+  j.mark(greece, 'wish');
+  assert.deepEqual(j.counts(), { visited: 1, wish: 1, unexplored: 2 });
+});
+
+test('undo takes back the Mark of an Island', () => {
+  const j = journal();
+  j.mark(crete, 'wish');
+  assert.deepEqual(j.undo(), crete);
+  assert.equal(j.status(crete), 'unexplored');
+});
+
+test('the Mark of an Island survives closing and reopening the app', () => {
+  const db = memoryDatabase();
+  openJournal({ db, atlas }).mark(crete, 'visited');
+  const reopened = openJournal({ db, atlas });
+  assert.equal(reopened.status(crete), 'visited');
+  assert.equal(reopened.status(greece), 'unexplored');
 });

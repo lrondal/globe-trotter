@@ -2,7 +2,7 @@
 // its readers after every change.
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 
-import { countries } from '@/atlas';
+import { places } from '@/atlas';
 
 import { deviceDatabase } from './deviceDatabase';
 import { openJournal, type Journal, type Mark, type PlaceRef } from './journal';
@@ -20,7 +20,7 @@ type JournalState = {
 const JournalContext = createContext<JournalState | null>(null);
 
 export function JournalProvider({ children }: { children: ReactNode }) {
-  const [journal] = useState(() => openJournal({ db: deviceDatabase(), atlas: { countries } }));
+  const [journal] = useState(() => openJournal({ db: deviceDatabase(), atlas: { places } }));
   const [version, setVersion] = useState(0);
 
   // A new value after each change, so every reader re-renders.

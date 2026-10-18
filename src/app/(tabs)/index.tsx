@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
-import { countries, countryGeometry, footprintOf } from '@/atlas';
+import { countries, countryGeometry, footprintOf, places } from '@/atlas';
 import { FilterChip } from '@/components/FilterChip';
 import { STATUS_LABEL } from '@/components/StatusBadge';
 import { Toast } from '@/components/Toast';
 import type { Point } from '@/globe/camera';
 import { Globe, type GlobeHandle } from '@/globe/Globe';
 import { layerOf, type Filters } from '@/globe/layers';
-import type { Journal, Mark, PlaceRef, Status } from '@/journal/journal';
+import type { Journal, Mark, Status } from '@/journal/journal';
 import { useJournal } from '@/journal/JournalProvider';
 import { recenterAction } from '@/location/launch';
 import { useLocation } from '@/location/LocationProvider';
@@ -32,11 +32,9 @@ const noPosition = {
 const STATUSES: Status[] = ['visited', 'wish', 'unexplored'];
 const ALL_SHOWN: Filters = { visited: true, wish: true, unexplored: true };
 
-const countryRef = (c: number): PlaceRef => ({ level: 'country', id: countries[c].id });
-
-/** The colour layer of every Country, by its index in the Atlas. */
+/** The colour layer of every Country and Island, by its index in the Atlas. */
 const layersOf = (journal: Journal, filters: Filters) =>
-  countries.map((_, c) => layerOf(journal.status(countryRef(c)), filters));
+  places.map((place) => layerOf(journal.status(place), filters));
 
 export default function GlobeScreen() {
   const { launch, position, permission, request, locate } = useLocation();
@@ -61,7 +59,7 @@ export default function GlobeScreen() {
   const place = useMemo<SheetPlace | null>(() => {
     if (selected === null) return null;
     const { lon, lat } = footprintOf(countryGeometry, selected);
-    return { name: countries[selected].name, lon, lat, status: journal.status(countryRef(selected)) };
+    return { name: countries[selected].name, lon, lat, status: journal.status(places[selected]) };
   }, [selected, journal, version]);
 
   const onClose = useCallback(() => {
@@ -70,7 +68,7 @@ export default function GlobeScreen() {
   }, []);
   const onMark = (next: Mark | null) => {
     if (selected === null) return;
-    mark(countryRef(selected), next);
+    mark(places[selected], next);
     const status: Status = next ?? 'unexplored';
     notify({ message: `${countries[selected].name} · ${STATUS_LABEL[status]}`, action: 'Annuler', onAction: undo });
   };

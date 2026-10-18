@@ -6,12 +6,13 @@ import type { Database } from './database.ts';
 
 export type Mark = 'visited' | 'wish';
 export type Status = Mark | 'unexplored';
-export type PlaceRef = { level: 'country'; id: string };
+/** An Island is marked independently of its Country: neither one's Status reaches the other. */
+export type PlaceRef = { level: 'country' | 'island'; id: string };
 
 type Options = {
   db: Database;
   /** The reference Places the Journal counts over. */
-  atlas: { countries: readonly { id: string }[] };
+  atlas: { places: readonly PlaceRef[] };
   now?: () => Date;
 };
 
@@ -51,7 +52,7 @@ function migrate(db: Database) {
   }
 }
 
-type Row = { id: string; level: 'country'; mark: Mark | null; visit_date: string | null; note: string };
+type Row = { id: string; level: PlaceRef['level']; mark: Mark | null; visit_date: string | null; note: string };
 
 const toPlace = (row: Row): Place => ({
   level: row.level,
@@ -124,10 +125,10 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
     status(place: PlaceRef): Status {
       return recordOf(place).mark ?? 'unexplored';
     },
-    /** How many Countries of the Atlas have each Status, for the filter chips. */
+    /** How many Places of the Atlas (Countries and Islands) have each Status, for the filter chips. */
     counts(): Record<Status, number> {
       const counts = { visited: 0, wish: 0, unexplored: 0 };
-      for (const { id } of atlas.countries) counts[recordOf({ level: 'country', id }).mark ?? 'unexplored']++;
+      for (const place of atlas.places) counts[recordOf(place).mark ?? 'unexplored']++;
       return counts;
     },
   };
