@@ -56,7 +56,7 @@ test('a tap well inside a big Country next to a micro-country still finds the bi
   assert.equal(tap({ lon: 7.42, lat: 43.74, zoom: 2 }, -30, 0), '250');
 });
 
-test('zoomed all the way in, a tap on a micro-state finds it, and a tap beside it its neighbour', () => {
+test('zoomed all the way in, a tap on a micro-country finds it, and a tap beside it its neighbour', () => {
   // Centred on where the Atlas draws each: the Vatican, Monaco, San Marino, Liechtenstein.
   for (const id of ['336', '492', '674', '438']) {
     const { lon, lat } = footprintOf(geometry, countries.findIndex((c) => c.id === id));

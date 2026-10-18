@@ -23,6 +23,8 @@ import { frameFor, globeCenterY, TOP_BAND } from './projection.ts';
 // A 402 pt wide iPhone: the globe's radius at zoom 1 is 0.49 × 402.
 const RADIUS = 196.98;
 const europe: View = { lon: 10, lat: 45, zoom: 1 };
+// The Vatican as the Atlas draws it: 1.457e-4 globe radii wide, about 0.93 km.
+const vatican = { lon: 12.434, lat: 41.902, width: 1.457e-4, height: 1.67e-4 };
 
 test('dragging the globe down far enough never tilts the view past 60° N', () => {
   let view = europe;
@@ -55,36 +57,33 @@ test('longitude wraps around the antimeridian', () => {
   assert.ok(Math.abs(view.lon - -150) < 1e-9, `lon ${view.lon}`);
 });
 
-const still = { x: 0, y: 0 };
+const centre = { x: 0, y: 0 };
 
 test('a pinch scales the zoom it started from, between 0.8× and 2000×', () => {
-  assert.equal(pinch(europe, 2, 1.5, still, still, RADIUS).zoom, 3);
-  assert.equal(pinch(europe, 2, 5000, still, still, RADIUS).zoom, 2000);
-  assert.equal(pinch(europe, 2, 0.01, still, still, RADIUS).zoom, 0.8);
+  assert.equal(pinch(europe, 2, 1.5, centre, centre, RADIUS).zoom, 3);
+  assert.equal(pinch(europe, 2, 5000, centre, centre, RADIUS).zoom, 2000);
+  assert.equal(pinch(europe, 2, 0.01, centre, centre, RADIUS).zoom, 0.8);
 });
 
 test('zoomed in, the ground between the fingers stays under them as they pinch and move', () => {
   // Monaco, off the centre of a view of the Riviera, is where the fingers pinch.
   let view: View = { lon: 7, lat: 43.5, zoom: 100 };
   const start = onScreen({ view, lift: 0 }, 7.42, 43.74);
-  let focal = { x: start.x - 201, y: start.y - globeCenterY(screen) };
+  const focal = { x: start.x - 201, y: start.y - globeCenterY(screen) };
   for (const scale of [1.2, 1.6, 2.5, 4, 8]) {
-    view = pinch(view, 100, scale, focal, still, RADIUS);
+    view = pinch(view, 100, scale, focal, focal, RADIUS);
     const monaco = onScreen({ view, lift: 0 }, 7.42, 43.74);
     assert.ok(Math.hypot(monaco.x - start.x, monaco.y - start.y) < 0.5, `at ${view.zoom}× Monaco is at (${monaco.x}, ${monaco.y})`);
   }
   // The fingers drift 12 pt right and 7 pt up while pinching further: Monaco follows them.
-  const moved = { x: 12, y: -7 };
-  focal = { x: focal.x + moved.x, y: focal.y + moved.y };
-  view = pinch(view, 100, 10, focal, moved, RADIUS);
+  view = pinch(view, 100, 10, focal, { x: focal.x + 12, y: focal.y - 7 }, RADIUS);
   const monaco = onScreen({ view, lift: 0 }, 7.42, 43.74);
   assert.ok(Math.hypot(monaco.x - start.x - 12, monaco.y - start.y + 7) < 0.5, `Monaco is at (${monaco.x}, ${monaco.y})`);
 });
 
 test('at the deepest zoom the Vatican is a comfortable 44 pt target, even on a 375 pt wide phone', () => {
-  // The Vatican's outline in the Atlas is 1.457e-4 globe radii wide (about 0.93 km).
-  const radius = 0.49 * 375;
-  assert.ok(MAX_ZOOM * radius * 1.457e-4 >= 44, `${MAX_ZOOM * radius * 1.457e-4} pt`);
+  const width = MAX_ZOOM * 0.49 * 375 * vatican.width;
+  assert.ok(width >= 44, `${width} pt`);
 });
 
 test('a press on + or − doubles or halves the zoom, staying between 0.8× and 2000×', () => {
@@ -270,7 +269,6 @@ test('the flight takes the shortest way in longitude, across the antimeridian', 
 });
 
 test('flying from the whole globe down to the Vatican, it glides to where it lands, never off screen', () => {
-  const vatican = { lon: 12.434, lat: 41.902, width: 1.457e-4, height: 1.67e-4 };
   for (const from of [europe, { lon: 40, lat: 15, zoom: 1.5 }]) {
     const to = fit(vatican, screen, SHEET_TOP);
     assert.equal(to.view.zoom, 2000);
@@ -286,7 +284,6 @@ test('flying from the whole globe down to the Vatican, it glides to where it lan
 });
 
 test('flying back out from the Vatican to the whole globe, it never leaves the screen', () => {
-  const vatican = { lon: 12.434, lat: 41.902, width: 1.457e-4, height: 1.67e-4 };
   const from = fit(vatican, screen, SHEET_TOP);
   for (const shot of flyAll(from, { view: { lon: 30, lat: 20, zoom: 1 }, lift: 0 }).shots) {
     const at = onScreen(shot, vatican.lon, vatican.lat);

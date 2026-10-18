@@ -97,6 +97,7 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   const pinching = useSharedValue(false);
   const pinchedThisTouch = useSharedValue(false);
   const pinchStartZoom = useSharedValue(start.zoom);
+  /** The point between the pinching fingers at the last update, from the globe's centre then. */
   const pinchFocal = useSharedValue({ x: 0, y: 0 });
   /** 1 while + is held down, -1 while − is, 0 otherwise. */
   const holding = useSharedValue<0 | 1 | -1>(0);
@@ -131,6 +132,7 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
     const half = detentHeight('half', screenHeight);
     const to = fit(footprintOf(countryGeometry, country), viewport.value, screenHeight - half);
     spin.value = null;
+    holding.value = 0;
     cancelAnimation(zoom);
     cancelAnimation(lift);
     flight.value = { from: { view: view(), lift: lift.value }, to, elapsed: 0 };
@@ -155,6 +157,7 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   const flyTo = (point: Point) => {
     'worklet';
     spin.value = null;
+    holding.value = 0;
     cancelAnimation(zoom);
     cancelAnimation(lift);
     flight.value = { from: { view: view(), lift: lift.value }, to: { view: centerOn(view(), point), lift: 0 }, elapsed: 0 };
@@ -235,16 +238,18 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
       spin.value = null;
       stopFlight();
       cancelAnimation(zoom);
+      holding.value = 0;
       pinchStartZoom.value = zoom.value;
-      pinchFocal.value = { x: e.focalX, y: e.focalY };
+      const f = frame();
+      pinchFocal.value = { x: e.focalX - f.cx, y: e.focalY - f.cy };
     })
     .onUpdate((e) => {
       // The ground under the fingers stays under them, so a pinch zooms into what it is on.
+      // Measured from the globe's centre, which may still be rising above the sheet.
       const f = frame();
       const focal = { x: e.focalX - f.cx, y: e.focalY - f.cy };
-      const moved = { x: e.focalX - pinchFocal.value.x, y: e.focalY - pinchFocal.value.y };
-      pinchFocal.value = { x: e.focalX, y: e.focalY };
-      const next = pinch(view(), pinchStartZoom.value, e.scale, focal, moved, globeRadius(viewport.value));
+      const next = pinch(view(), pinchStartZoom.value, e.scale, pinchFocal.value, focal, globeRadius(viewport.value));
+      pinchFocal.value = focal;
       turnTo(next);
       zoom.value = next.zoom;
     })

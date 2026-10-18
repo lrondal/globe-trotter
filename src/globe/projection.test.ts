@@ -34,6 +34,8 @@ test('a point on the far side of the globe is hidden', () => {
   assert.equal(projectPoint(frameFor({ lon: 10, lat: 45, zoom: 1 }, viewport), { lon: -170, lat: -45 }).visible, false);
 });
 
+const { geometry } = decodeCountries(JSON.parse(readFileSync(new URL('../../assets/data/countries.json', import.meta.url), 'utf8')));
+
 /** Records every coordinate traced, as Skia gets them: in float32. */
 function recorder() {
   const xs: number[] = [];
@@ -58,7 +60,6 @@ const deepViews = [
 ];
 
 test('zoomed all the way in, every point given to Skia stays near the screen, where float32 is precise', () => {
-  const { geometry } = decodeCountries(JSON.parse(readFileSync(new URL('../../assets/data/countries.json', import.meta.url), 'utf8')));
   for (const view of deepViews) {
     const frame = frameFor(view, viewport);
     const { xs, ys, sink } = recorder();
@@ -73,7 +74,6 @@ test('zoomed all the way in, every point given to Skia stays near the screen, wh
 });
 
 test('zoomed all the way in, the Vatican and the hole Italy leaves for it are drawn through the very same points', () => {
-  const { geometry } = decodeCountries(JSON.parse(readFileSync(new URL('../../assets/data/countries.json', import.meta.url), 'utf8')));
   const rings: string[][] = [];
   const add = (x: number, y: number) => void rings.at(-1)!.push(`${Math.fround(x)},${Math.fround(y)}`);
   const sink = { moveTo: (x: number, y: number) => (rings.push([]), add(x, y)), lineTo: add, conicTo() {}, close() {} };

@@ -15,12 +15,12 @@ export const MAX_LAT = 60;
  * in, the globe is a map and the ground stays under the finger: one radian per on-screen
  * radius, and longitudes stretched by the shrinking of the parallels.
  */
-function degreesPerPoint(view: View, radius: number): Point {
+function degreesPerPoint(view: View, radius: number): { lon: number; lat: number } {
   'worklet';
   const ball = Math.min(1, 1 / view.zoom);
-  const lat = (180 / Math.PI + (75 - 180 / Math.PI) * ball) / (radius * view.zoom);
+  const north = (180 / Math.PI + (75 - 180 / Math.PI) * ball) / (radius * view.zoom);
   const cos = Math.cos((view.lat * Math.PI) / 180);
-  return { lon: lat / (cos + (1 - cos) * ball), lat };
+  return { lon: north / (cos + (1 - cos) * ball), lat: north };
 }
 
 export function clampLat(lat: number) {
@@ -44,8 +44,11 @@ export function drag(view: View, dx: number, dy: number, radius: number): View {
 /** A distance on screen, in points. */
 export type Offset = { x: number; y: number };
 
-/** The ground (a unit vector) drawn `at` points from the globe's centre, or null off the globe. */
-function groundAt(view: View, at: Offset, radius: number): [number, number, number] | null {
+/** A point of the globe as a unit vector (x towards 0°E, z towards the North Pole). */
+type Ground = [number, number, number];
+
+/** The ground drawn `at` points from the globe's centre, or null off the globe. */
+function groundAt(view: View, at: Offset, radius: number): Ground | null {
   'worklet';
   const u = at.x / (radius * view.zoom);
   const v = -at.y / (radius * view.zoom);
@@ -59,10 +62,10 @@ function groundAt(view: View, at: Offset, radius: number): [number, number, numb
 }
 
 /**
- * The view, at the zoom of `view`, that draws `ground` (a unit vector) `at` points from the
- * globe's centre; `view` itself when no view can. Exact, so a pinch never drifts.
+ * The view, at the zoom of `view`, that draws `ground` `at` points from the globe's centre;
+ * `view` itself when no view can. Exact, so a pinch never drifts, short of the tilt limit.
  */
-function showAt(view: View, ground: [number, number, number], at: Offset, radius: number): View {
+function showAt(view: View, ground: Ground, at: Offset, radius: number): View {
   'worklet';
   const [px, py, pz] = ground;
   const u = at.x / (radius * view.zoom);
@@ -93,14 +96,14 @@ function withZoom(view: View, zoom: number): View {
 
 /**
  * The view during a pinch that started at `startZoom` and has scaled by `scale` since. The
- * ground under the fingers stays under them: `focal` is the point between the fingers, from
- * the globe's centre on screen, and `moved` how far it moved since the last update.
+ * ground under the fingers stays under them as they move from `from` to `to`: the point
+ * between them at the last update and now, each from the globe's centre on screen then.
  */
-export function pinch(view: View, startZoom: number, scale: number, focal: Offset, moved: Offset, radius: number): View {
+export function pinch(view: View, startZoom: number, scale: number, from: Offset, to: Offset, radius: number): View {
   'worklet';
   const zoomed = withZoom(view, startZoom * scale);
-  const ground = groundAt(view, { x: focal.x - moved.x, y: focal.y - moved.y }, radius);
-  return ground ? showAt(zoomed, ground, focal, radius) : zoomed;
+  const ground = groundAt(view, from, radius);
+  return ground ? showAt(zoomed, ground, to, radius) : zoomed;
 }
 
 export function zoomIn(view: View): View {
