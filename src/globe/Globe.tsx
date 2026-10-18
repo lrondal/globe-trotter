@@ -94,7 +94,6 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   const lift = useSharedValue(0);
   const spin = useSharedValue<Spin | null>(null);
   const flight = useSharedValue<{ from: Shot; to: Shot; elapsed: number } | null>(null);
-  const pinching = useSharedValue(false);
   const pinchedThisTouch = useSharedValue(false);
   const pinchStartZoom = useSharedValue(start.zoom);
   /** The point between the pinching fingers at the last update, from the globe's centre then. */
@@ -224,7 +223,9 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
       pinchedThisTouch.value = false;
     })
     .onChange((e) => {
-      if (pinching.value) return;
+      // After a pinch the globe stays put until every finger is up: the last finger lifted
+      // would otherwise drag it, a visible slide at deep zoom.
+      if (pinchedThisTouch.value) return;
       turnTo(drag(view(), e.changeX, e.changeY, globeRadius(viewport.value)));
     })
     .onEnd((e) => {
@@ -233,7 +234,6 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
     });
   const pinchGesture = Gesture.Pinch()
     .onStart((e) => {
-      pinching.value = true;
       pinchedThisTouch.value = true;
       spin.value = null;
       stopFlight();
@@ -244,6 +244,8 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
       pinchFocal.value = { x: e.focalX - f.cx, y: e.focalY - f.cy };
     })
     .onUpdate((e) => {
+      // As a finger lifts, the point between the fingers jumps to the other one: ignore it.
+      if (e.numberOfPointers < 2) return;
       // The ground under the fingers stays under them, so a pinch zooms into what it is on.
       // Measured from the globe's centre, which may still be rising above the sheet.
       const f = frame();
@@ -252,9 +254,6 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
       pinchFocal.value = focal;
       turnTo(next);
       zoom.value = next.zoom;
-    })
-    .onFinalize(() => {
-      pinching.value = false;
     });
   // A tap fails as soon as the finger moves enough to turn the globe.
   const gestures = Gesture.Race(Gesture.Simultaneous(pan, pinchGesture), tap);
