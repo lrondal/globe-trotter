@@ -9,5 +9,5 @@ Visiting Crète should not make Greece Visited, and tapping Crète should frame 
 
 ## Consequences
 
-- The list needs hand upkeep, and an island missing from the 50m map (Capri, Boracay) cannot be one. The build fails if a listed point falls in no polygon of its Country.
+- The list needs hand upkeep, and an island missing from the 50m map (Capri, Boracay) cannot be one. The build fails if a listed point falls in no polygon of its Country, or if two Islands claim the same polygon. Alaska, scattered over some 70 polygons, also takes every US polygon centred in a lon/lat box rather than a point in each.
 - Regions made only of Islands (Corse, Illes Balears…) are dropped, and the Cities on an Island roll up to the Island alone, so the Status rule has one exception: Islands are not inside their Country.

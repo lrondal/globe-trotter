@@ -43,8 +43,9 @@ test('a micro-country is found by a tap a few points off it, in the sea', () => 
 
 test('a micro-country beats its big neighbour when the tap lands just off it', () => {
   const monaco = { lon: 7.42, lat: 43.74, zoom: 2 };
-  // 1.2° south, in the sea, where the French coast is nearer than Monaco.
-  assert.equal(tap(monaco, 0, 8), '492');
+  // 0.9° south, in the sea, where the French coast is nearer than Monaco (and Corse, now an
+  // Island small enough to win too, is farther).
+  assert.equal(tap(monaco, 0, 6), '492');
   // 0.3° west, inland in France.
   assert.equal(tap(monaco, -2, 0), '492');
   // Singapore: 0.3° north, in Malaysia.
@@ -65,6 +66,22 @@ test('zoomed all the way in, a tap on a micro-country finds it, and a tap beside
   // 1.3 km east of the Vatican: Rome, in Italy.
   const vatican = footprintOf(geometry, countries.findIndex((c) => c.id === '336'));
   assert.equal(tap({ lon: vatican.lon, lat: vatican.lat, zoom: MAX_ZOOM }, 80, 0), '380');
+});
+
+test('a tap on an Island finds the Island, and a tap on its mainland the Country', () => {
+  // Fira, on Santorin; Athens; Heraklion, on Crète.
+  assert.equal(tap({ lon: 25.43, lat: 36.42, zoom: MAX_ZOOM / 4 }), 'i-santorin');
+  assert.equal(tap({ lon: 23.73, lat: 37.98, zoom: 4 }), '300');
+  assert.equal(tap({ lon: 25.13, lat: 35.3, zoom: 4 }), 'i-crete');
+});
+
+test('an Island knows its Country, and its Footprint frames the Island alone', () => {
+  const c = countries.findIndex((country) => country.id === 'i-crete');
+  assert.equal(countries[c].countryId, '300');
+  const { lon, lat, width } = footprintOf(geometry, c);
+  // Crète spans 23.5°E to 26.3°E around 35.2°N: about 260 km, 0.04 globe radii.
+  assert.ok(Math.abs(lon - 24.9) < 0.3 && Math.abs(lat - 35.2) < 0.3, `centred at ${lon}, ${lat}`);
+  assert.ok(width > 0.03 && width < 0.05, `width ${width}`);
 });
 
 test('a tap far from any coast finds nothing, even near a micro-country', () => {

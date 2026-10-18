@@ -1,6 +1,6 @@
 // Country pipeline: world-atlas 50m -> the Countries the app ships (ids, French names, geometry).
 import { createRequire } from 'node:module';
-import { geoArea, geoDistance, geoInterpolate } from 'd3-geo';
+import { geoArea, geoCentroid, geoContains, geoDistance, geoInterpolate } from 'd3-geo';
 import { transform } from 'topojson-client';
 import { presimplify, sphericalTriangleArea } from 'topojson-simplify';
 import type { GeometryCollection, MultiPolygon, Polygon, Topology } from 'topojson-specification';
@@ -11,6 +11,7 @@ import {
   type CountryData as Country,
   type CountryRecord,
 } from '../src/atlas/countries.ts';
+import { ISLANDS, type IslandSpec } from './islands.ts';
 
 const require = createRequire(import.meta.url);
 const iso = require('i18n-iso-countries');
@@ -55,11 +56,11 @@ const NOT_ON_THE_MAP: Record<string, string> = {
   '074': 'Bouvet Island: not in the 50m map',
   '162': 'Christmas Island: part of x-indian-ocean-territories',
   '166': 'Cocos Islands: part of x-indian-ocean-territories',
-  '175': 'Mayotte: drawn as part of France',
-  '254': 'French Guiana: drawn as part of France',
-  '312': 'Guadeloupe: drawn as part of France',
-  '474': 'Martinique: drawn as part of France',
-  '638': 'Réunion: drawn as part of France',
+  '175': 'Mayotte: drawn as part of France, carved out as an Island',
+  '254': 'French Guiana: drawn as part of France, carved out as an Island',
+  '312': 'Guadeloupe: drawn as part of France, carved out as an Island',
+  '474': 'Martinique: drawn as part of France, carved out as an Island',
+  '638': 'Réunion: drawn as part of France, carved out as an Island',
   '292': 'Gibraltar: not in the 50m map',
   '535': 'Bonaire, Sint Eustatius and Saba: drawn as part of the Netherlands',
   '581': 'U.S. Minor Outlying Islands: not in the 50m map',
@@ -69,7 +70,7 @@ const NOT_ON_THE_MAP: Record<string, string> = {
   '983': 'Kosovo: drawn as x-kosovo',
 };
 
-export function buildCountries(world: WorldAtlas): CountriesData {
+export function buildCountries(world: WorldAtlas, islands: IslandSpec[] = ISLANDS): CountriesData {
   const onMap = new Set(world.objects.countries.geometries.map((g) => String(g.id)));
   const missing = Object.keys(iso.getNumericCodes()).filter((n) => !onMap.has(n) && !(n in NOT_ON_THE_MAP));
   if (missing.length > 0) {
@@ -87,11 +88,64 @@ export function buildCountries(world: WorldAtlas): CountriesData {
     if (geometry.type === 'Polygon') country.polygons.push((geometry as Polygon).arcs);
     else if (geometry.type === 'MultiPolygon') country.polygons.push(...(geometry as MultiPolygon).arcs);
   }
-  const countries = [...byId.values()];
-
   const arcs = levelledArcs(world);
+  const countries = [...byId.values(), ...carveIslands(islands, byId, arcs)];
   for (const country of countries) checkOutline(country, arcs);
   return { countries, arcs: arcs.map(encodeArc) };
+}
+
+/** Takes each Island's polygons out of its Country, into an entity of its own. */
+function carveIslands(islands: IslandSpec[], byId: Map<string, Country>, arcs: Point[][]): Country[] {
+  const shapes = new Map<Country, ReturnType<typeof polygonShape>[]>();
+  const shapesOf = (country: Country) => {
+    if (!shapes.has(country)) shapes.set(country, country.polygons.map((p) => polygonShape(p, arcs)));
+    return shapes.get(country)!;
+  };
+  /** The Island that claimed each polygon, found against the Countries before any carving. */
+  const claimedBy = new Map<number[][], string>();
+  const carved = islands.map((island) => {
+    const country = byId.get(island.countryId);
+    if (!country) throw new Error(`${island.id}: no Country ${island.countryId}`);
+    const own = shapesOf(country);
+    const taken = new Set<number>();
+    for (const point of island.points) {
+      const k = own.findIndex((shape) => geoContains(shape, point));
+      if (k < 0) throw new Error(`${island.id}: [${point}] is in no polygon of ${country.name}`);
+      taken.add(k);
+    }
+    if (island.box) {
+      const box = island.box;
+      const before = taken.size;
+      own.forEach((shape, k) => inBox(box, geoCentroid(shape)) && taken.add(k));
+      if (taken.size === before) throw new Error(`${island.id}: its box holds no other polygon of ${country.name}`);
+    }
+    const polygons = [...taken].map((k) => country.polygons[k]);
+    for (const polygon of polygons) {
+      const other = claimedBy.get(polygon);
+      if (other) throw new Error(`${island.id} claims a polygon of ${other}`);
+      claimedBy.set(polygon, island.id);
+    }
+    return { id: island.id, name: island.name, countryId: country.id, polygons };
+  });
+  for (const country of byId.values()) country.polygons = country.polygons.filter((p) => !claimedBy.has(p));
+  return carved;
+}
+
+/** Whether a point is in a box; a box whose west edge is east of its east edge crosses the antimeridian. */
+function inBox([west, south, east, north]: NonNullable<IslandSpec['box']>, [lon, lat]: [number, number]) {
+  return lat >= south && lat <= north && (west <= east ? lon >= west && lon <= east : lon >= west || lon <= east);
+}
+
+/** A polygon of arc indices as a GeoJSON Polygon in degrees. */
+function polygonShape(polygon: number[][], arcs: Point[][]) {
+  return { type: 'Polygon' as const, coordinates: polygon.map((ring) => ringCoordinates(ring, arcs)) };
+}
+
+function ringCoordinates(indices: number[], arcs: Point[][]): [number, number][] {
+  return indices.flatMap((i) => {
+    const arc = i < 0 ? [...arcs[~i]].reverse() : arcs[i];
+    return arc.map(([lon, lat]): [number, number] => [lon, lat]);
+  });
 }
 
 type Point = [lon: number, lat: number, area: number];
@@ -133,12 +187,10 @@ function encodeArc(arc: Point[]): number[] {
 
 /** Coherence check: a Country is a real outline, wound so that it covers less than a hemisphere. */
 function checkOutline(country: Country, arcs: Point[][]) {
-  const ring = (indices: number[]) =>
-    indices.flatMap((i) => {
-      const arc = i < 0 ? [...arcs[~i]].reverse() : arcs[i];
-      return arc.map(([lon, lat]) => [lon, lat]);
-    });
-  const geometry = { type: 'MultiPolygon' as const, coordinates: country.polygons.map((p) => p.map(ring)) };
+  const geometry = {
+    type: 'MultiPolygon' as const,
+    coordinates: country.polygons.map((p) => polygonShape(p, arcs).coordinates),
+  };
   const area = geoArea(geometry);
   if (country.polygons.length === 0 || area === 0 || area > 2 * Math.PI) {
     throw new Error(`${country.id} ${country.name}: no outline or an inverted one (area ${area} sr)`);

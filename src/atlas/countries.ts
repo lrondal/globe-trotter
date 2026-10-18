@@ -1,6 +1,10 @@
 // The Countries shipped with the app (assets/data/countries.json, made by scripts/countries.ts).
 
-export type CountryRecord = { id: string; name: string };
+/**
+ * A Country, or an Island with the id of its Country: both are drawn, hit and framed alike,
+ * each with its own outline. Island ids start with `i-`.
+ */
+export type CountryRecord = { id: string; name: string; countryId?: string };
 
 /**
  * Where a Place sits and how much of the globe it covers: its centre (degrees), and the
@@ -136,7 +140,7 @@ export function decodeCountries(data: CountriesData): {
   });
 
   return {
-    countries: data.countries.map(({ id, name }) => ({ id, name })),
+    countries: data.countries.map(({ id, name, countryId }) => (countryId ? { id, name, countryId } : { id, name })),
     geometry: {
       xyz: points,
       level: new Uint8Array(level),
