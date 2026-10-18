@@ -5,19 +5,23 @@ A personal, single-user record of the places someone has visited or wants to vis
 ## Places
 
 **Place**:
-A Country, Region or City that the user can mark, annotate and photograph.
+A Country, Island, Region or City that the user can mark, annotate and photograph.
 _Avoid_: Location, destination, spot
 
 **Country** (Pays):
 A top-level Place, identified by its ISO 3166-1 code. Includes territories drawn separately on the map (e.g. Greenland, Hong Kong), which are marked independently of their sovereign state.
 _Avoid_: Nation, state
 
+**Island** (Île):
+A part of a Country set apart from its mainland, almost always an island (French Guiana and Alaska are the exceptions), e.g. Crète, Corse, Bali. Islands come from a fixed list; the large islands of archipelago countries (Hokkaido, Java) are not Islands. An Island belongs to its Country but is marked independently of it, both ways: visiting Crète does not make Greece Visited.
+_Avoid_: Detached region, territory, part
+
 **Region** (Région):
 A first-level administrative subdivision of a Country (ADM1), e.g. Kansai, Toscane.
 _Avoid_: Province, state, area
 
 **City** (Ville):
-A named point Place inside a Country, and inside a Region when one can be determined. Either picked from the built-in city list or a Custom City.
+A named point Place inside a Country, and inside an Island or a Region when one can be determined. Either picked from the built-in city list or a Custom City.
 _Avoid_: Town, pin
 
 **Custom City**:
@@ -30,7 +34,7 @@ _Avoid_: Custom pin, user place
 The status the user has set directly on a Place: Visited, Wish, or none.
 
 **Status**:
-A Place's effective state, derived from its own Mark and the Marks of the Places inside it. Visited outranks Wish, which outranks Unexplored.
+A Place's effective state, derived from its own Mark and the Marks of the Places inside it. An Island and the Cities on it are not inside their Country or a Region for this. Visited outranks Wish, which outranks Unexplored.
 
 **Visited** (Visité):
 The Status of a Place the user has been to.
@@ -66,7 +70,7 @@ The one Photo a Place has chosen to represent it.
 ## Actions
 
 **Clear** (Effacer):
-Removing a Country's or Region's Mark, Note, Todos and Photos, returning it to Unexplored. Places inside it are untouched.
+Removing a Country's, Island's or Region's Mark, Note, Todos and Photos, returning it to Unexplored. Places inside it are untouched.
 _Avoid_: Delete, reset
 
 **Delete** (Supprimer):
