@@ -2,11 +2,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { openJournal } from './journal.ts';
+import { openJournal, type PlaceRef } from './journal.ts';
 import { memoryDatabase } from './memoryDatabase.ts';
+
+/** Regions of Japan, the only Places of the test Atlas inside another. */
+const REGIONS: Record<string, string> = { kansai: '392', kanto: '392' };
 
 const atlas = {
   places: ['250', '392', '620', 'x-kosovo'].map((id) => ({ level: 'country', id }) as const),
+  containerOf: (place: PlaceRef): PlaceRef | null =>
+    place.level === 'region' ? { level: 'country', id: REGIONS[place.id] } : null,
 };
 const france = { level: 'country', id: '250' } as const;
 
@@ -126,7 +131,7 @@ test('a Country marked Visited leaves its Islands Unexplored', () => {
 
 test('the filter chips count Islands alongside Countries', () => {
   const places = [france, greece, crete, { level: 'island', id: 'i-corse' } as const];
-  const j = openJournal({ db: memoryDatabase(), atlas: { places } });
+  const j = openJournal({ db: memoryDatabase(), atlas: { ...atlas, places } });
   j.mark(crete, 'visited');
   assert.deepEqual(j.counts(), { visited: 1, wish: 0, unexplored: 3 });
   j.mark(greece, 'wish');
@@ -236,4 +241,76 @@ test('removing the Mark keeps the Todos of the Place', () => {
   assert.equal(j.status(japan), 'unexplored');
   assert.notEqual(j.place(japan), null);
   assert.deepEqual(todosOf(j, japan), [{ text: 'Réserver le ryokan', done: false }]);
+});
+
+const kansai = { level: 'region', id: 'kansai' } as const;
+const kanto = { level: 'region', id: 'kanto' } as const;
+
+test('a Region marked Visited makes its Country Visited, via the Region', () => {
+  const j = journal();
+  j.mark(kansai, 'visited');
+  assert.equal(j.status(japan), 'visited');
+  assert.deepEqual(j.via(japan), [kansai]);
+  assert.equal(j.place(japan), null, 'the Country gets no Mark of its own');
+});
+
+test('a Visited Region outranks the Wish Mark of its Country', () => {
+  const j = journal();
+  j.mark(japan, 'wish');
+  j.mark(kanto, 'wish');
+  j.mark(kansai, 'visited');
+  assert.equal(j.status(japan), 'visited');
+  assert.deepEqual(j.via(japan), [kansai]);
+});
+
+test('a Country Visited by its own Mark shows no provenance', () => {
+  const j = journal();
+  j.mark(kansai, 'visited');
+  j.mark(japan, 'visited');
+  assert.equal(j.status(japan), 'visited');
+  assert.deepEqual(j.via(japan), []);
+});
+
+test('a Wish Region makes its Country Wish, via every Wish Region', () => {
+  const j = journal();
+  j.mark(kansai, 'wish');
+  j.mark(kanto, 'wish');
+  assert.equal(j.status(japan), 'wish');
+  assert.deepEqual(j.via(japan), [kansai, kanto]);
+});
+
+test('removing the Mark of the last Region returns its Country to its own Mark', () => {
+  const j = journal();
+  j.mark(japan, 'wish');
+  j.mark(kansai, 'visited');
+  j.mark(kansai, null);
+  assert.equal(j.status(japan), 'wish');
+  j.mark(japan, null);
+  assert.equal(j.status(japan), 'unexplored');
+});
+
+test('Retirer is offered on a Mark that makes the Status, not on an inherited Status', () => {
+  const j = journal();
+  j.mark(kansai, 'visited');
+  assert.equal(j.canRemoveMark(kansai), true);
+  assert.equal(j.canRemoveMark(japan), false, 'Visited only through Kansai');
+  j.mark(japan, 'wish');
+  assert.equal(j.canRemoveMark(japan), false, 'its Wish Mark changes nothing it shows');
+  j.mark(japan, 'visited');
+  assert.equal(j.canRemoveMark(japan), true);
+  assert.equal(j.canRemoveMark(france), false, 'no Mark to remove');
+});
+
+test('the filter chips count a Country by its inherited Status', () => {
+  const j = journal();
+  j.mark(kansai, 'visited');
+  assert.deepEqual(j.counts(), { visited: 1, wish: 0, unexplored: 3 });
+});
+
+test('the Mark of a Region survives reopening the app, and still reaches its Country', () => {
+  const db = memoryDatabase();
+  openJournal({ db, atlas }).mark(kansai, 'visited');
+  const reopened = openJournal({ db, atlas });
+  assert.equal(reopened.status(kansai), 'visited');
+  assert.deepEqual(reopened.via(japan), [kansai]);
 });

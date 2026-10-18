@@ -5,6 +5,9 @@
 // are re-projected from the geometry the Atlas prepared once. React only renders on layout
 // and on button presses: selecting a Country is told to the parent, and the globe is memoised
 // so the sheet re-rendering never rebuilds its gestures and paths mid-flight.
+//
+// The selected Country's Regions are handed over by the parent once loaded, and fade in over
+// it while it fades to its tint: the flight never waits for them.
 import { Canvas, Circle, Group, notifyChange, Path, Skia, usePathValue } from '@shopify/react-native-skia';
 import { LocateFixed, Minus, Plus } from 'lucide-react-native';
 import { memo, useEffect, useImperativeHandle, useMemo, useState, type Ref } from 'react';
@@ -13,6 +16,8 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   cancelAnimation,
   Easing,
+  interpolateColor,
+  useAnimatedReaction,
   useAnimatedStyle,
   useDerivedValue,
   useFrameCallback,
@@ -23,7 +28,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 
-import { countryGeometry, footprintOf } from '@/atlas';
+import { countryGeometry, footprintOf, type CountryGeometry } from '@/atlas';
 import { IconButton } from '@/components/IconButton';
 import { detentHeight, sheetTiming } from '@/sheet/detents';
 import { colors, duration, easing, fonts, layout, radius } from '@/theme/tokens';
@@ -61,6 +66,12 @@ import {
 } from './projection';
 
 const zoomTiming = { duration: duration.slow, easing: Easing.bezier(...easing.out) };
+/** How the Regions and the tint of their Country fade in and out. */
+const fadeTiming = { duration: duration.base, easing: Easing.bezier(...easing.out) };
+/** Regions can be tapped once they have faded in this far. */
+const REGIONS_TAPPABLE = 0.5;
+/** The Regions' hairlines, in points. */
+const REGION_STROKE = 0.6;
 /** The location dot: a 6 pt sage dot with a thin paper ring, in points. */
 const LOCATION_RADIUS = 3;
 const LOCATION_RING = 1.5;
@@ -70,6 +81,9 @@ const MEASURE_EVERY = 500;
 const LAYERS = Object.values(LAYER);
 /** After a pinch, the finger left down drags the globe once it has moved this far, in points. */
 const DRAG_AFTER_PINCH = 10;
+
+/** The Regions of the Country at index `country` in the Atlas, as the Atlas decoded them. */
+export type ShownRegions = { country: number; geometry: CountryGeometry };
 
 export type GlobeHandle = {
   /** Flies to the Country at this index in the Atlas and opens its sheet, as a tap on it does. */
@@ -91,10 +105,27 @@ type Props = {
   onSelect: (country: number | null) => void;
   /** The colour layer (see layers.ts) of each Country, by its index in the Atlas. */
   layers: SharedValue<Layer[]>;
+  /** The selected Country's Regions, once loaded; drawn only while their Country is selected. */
+  regions: SharedValue<ShownRegions | null>;
+  /** The colour layer of each of those Regions, by its index in their geometry. */
+  regionLayers: SharedValue<Layer[]>;
+  /** Index of the Region tapped, in the geometry of `regions`. */
+  onSelectRegion: (region: number) => void;
   ref?: Ref<GlobeHandle>;
 };
 
-export const Globe = memo(function Globe({ start, position, onRecenter, sheetHeight, onSelect, layers, ref }: Props) {
+export const Globe = memo(function Globe({
+  start,
+  position,
+  onRecenter,
+  sheetHeight,
+  onSelect,
+  layers,
+  regions,
+  regionLayers,
+  onSelectRegion,
+  ref,
+}: Props) {
   const insets = useSafeAreaInsets();
   const viewport = useSharedValue<Viewport>({ width: 0, height: 0 });
   const lon = useSharedValue(start.lon);
@@ -114,6 +145,10 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   /** 1 while + is held down, -1 while − is, 0 otherwise. */
   const holding = useSharedValue<0 | 1 | -1>(0);
   const shownPosition = useSharedValue(position);
+  /** Index in the Atlas of the selected Country, or -1. */
+  const selectedCountry = useSharedValue(-1);
+  /** 0 to 1 as the selected Country's Regions fade in, and it fades to its tint. */
+  const fade = useSharedValue(0);
 
   const [detail, setDetail] = useState<Detail>('standard');
   const [measures, setMeasures] = useState<Measures | null>(null);
@@ -143,6 +178,12 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
     const screenHeight = viewport.value.height;
     const half = detentHeight('half', screenHeight);
     const to = fit(footprintOf(countryGeometry, country), viewport.value, screenHeight - half);
+    // Another Country's Regions go at once; the same Country's stay.
+    if (country !== selectedCountry.value) {
+      cancelAnimation(fade);
+      fade.value = 0;
+    }
+    selectedCountry.value = country;
     spin.value = null;
     holding.value = 0;
     cancelAnimation(zoom);
@@ -153,6 +194,8 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   };
   const deselect = () => {
     'worklet';
+    selectedCountry.value = -1;
+    fade.value = withTiming(0, fadeTiming);
     flight.value = null;
     lift.value = withTiming(0, sheetTiming);
     sheetHeight.value = withTiming(0, sheetTiming);
@@ -165,9 +208,17 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
     flight.value = null;
     lift.value = withTiming(flying.to.lift, sheetTiming);
   };
+  // A Region opens its sheet at peek height, over its Country still framed.
+  const selectRegion = (region: number) => {
+    'worklet';
+    sheetHeight.value = withTiming(detentHeight('peek', viewport.value.height), sheetTiming);
+    scheduleOnRN(onSelectRegion, region);
+  };
   // Recentring lets go of the selected Country: the whole globe faces the point, sheet closed.
   const flyTo = (point: Point) => {
     'worklet';
+    selectedCountry.value = -1;
+    fade.value = withTiming(0, fadeTiming);
     spin.value = null;
     holding.value = 0;
     cancelAnimation(zoom);
@@ -189,21 +240,53 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   // usePathValue builds its one path, and the camera and layers are read directly.
   const builders = useSharedValue(useMemo(() => LAYERS.map(() => Skia.PathBuilder.Make()), []));
   const landPaths = useSharedValue(useMemo(() => LAYERS.map(() => Skia.Path.Make()), []));
+  // The selected Country's Regions, likewise, in the same layers.
+  const regionBuilders = useSharedValue(useMemo(() => LAYERS.map(() => Skia.PathBuilder.Make()), []));
+  const regionPaths = useSharedValue(useMemo(() => LAYERS.map(() => Skia.Path.Make()), []));
   useDerivedValue(() => {
     if (viewport.value.width === 0) return;
     const sinks = builders.value;
     for (const sink of sinks) sink.reset();
     const start = performance.now();
     const camera = frameFor({ lon: lon.value, lat: lat.value, zoom: zoom.value }, viewport.value, lift.value);
-    points.value = traceCountries(countryGeometry, camera, detailArea, sinks, layers.value);
+    let drawn = traceCountries(countryGeometry, camera, detailArea, sinks, layers.value);
     landPaths.value = sinks.map((sink) => sink.build());
+    const shown = regions.value;
+    const shownLayers = regionLayers.value;
+    // Their layers may arrive a frame before or after them: never draw one with the other's.
+    if (fade.value > 0 && shown && shownLayers.length === shown.geometry.footprints.length / 4) {
+      const regionSinks = regionBuilders.value;
+      for (const sink of regionSinks) sink.reset();
+      drawn += traceCountries(shown.geometry, camera, detailArea, regionSinks, shownLayers);
+      regionPaths.value = regionSinks.map((sink) => sink.build());
+      notifyChange(regionPaths);
+    }
+    points.value = drawn;
     buildMs.value = performance.now() - start;
     notifyChange(landPaths);
   });
+  // The selected Country's Regions fade in once they are there; deselecting fades them out.
+  useAnimatedReaction(
+    () => selectedCountry.value >= 0 && regions.value?.country === selectedCountry.value,
+    (ready, before) => {
+      if (ready && !before) fade.value = withTiming(1, fadeTiming);
+    },
+  );
   const land = useDerivedValue(() => landPaths.value[LAYER.land]);
   const visited = useDerivedValue(() => landPaths.value[LAYER.visited]);
   const wish = useDerivedValue(() => landPaths.value[LAYER.wish]);
   const outlineOnly = useDerivedValue(() => landPaths.value[LAYER.outline]);
+  const visitedTint = useDerivedValue(() => landPaths.value[LAYER.visitedTint]);
+  const wishTint = useDerivedValue(() => landPaths.value[LAYER.wishTint]);
+  const visitedTintColor = useDerivedValue(() =>
+    interpolateColor(fade.value, [0, 1], [colors.stateVisited, colors.stateVisitedTint]),
+  );
+  const wishTintColor = useDerivedValue(() => interpolateColor(fade.value, [0, 1], [colors.stateWish, colors.stateWishTint]));
+  // Regions take no tint layer: only these four.
+  const regionLand = useDerivedValue(() => regionPaths.value[LAYER.land]);
+  const regionVisited = useDerivedValue(() => regionPaths.value[LAYER.visited]);
+  const regionWish = useDerivedValue(() => regionPaths.value[LAYER.wish]);
+  const regionOutline = useDerivedValue(() => regionPaths.value[LAYER.outline]);
   const graticule = usePathValue((path) => {
     'worklet';
     if (viewport.value.width === 0) return;
@@ -234,7 +317,17 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
     .maxDistance(10)
     .onEnd((e, success) => {
       if (!success) return;
-      const country = countryAt(countryGeometry, frame(), detailArea, e.x, e.y);
+      const f = frame();
+      const country = countryAt(countryGeometry, f, detailArea, e.x, e.y);
+      // Inside the selected Country, once its Regions show, a tap picks one of them.
+      const shown = regions.value;
+      if (country >= 0 && country === selectedCountry.value && shown?.country === country && fade.value > REGIONS_TAPPABLE) {
+        const region = countryAt(shown.geometry, f, detailArea, e.x, e.y);
+        if (region >= 0) {
+          selectRegion(region);
+          return;
+        }
+      }
       if (country >= 0) {
         select(country);
       } else {
@@ -388,9 +481,18 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
           <Path path={land} color={colors.globeLand} />
           <Path path={visited} color={colors.stateVisited} />
           <Path path={wish} color={colors.stateWish} />
-          {[land, visited, wish, outlineOnly].map((path, i) => (
+          <Path path={visitedTint} color={visitedTintColor} />
+          <Path path={wishTint} color={wishTintColor} />
+          {[land, visited, wish, outlineOnly, visitedTint, wishTint].map((path, i) => (
             <Path key={i} path={path} style="stroke" strokeWidth={0.5} color={colors.globeStroke} />
           ))}
+          <Group opacity={fade}>
+            <Path path={regionVisited} color={colors.stateVisited} />
+            <Path path={regionWish} color={colors.stateWish} />
+            {[regionLand, regionVisited, regionWish, regionOutline].map((path, i) => (
+              <Path key={i} path={path} style="stroke" strokeWidth={REGION_STROKE} color={colors.paper0} />
+            ))}
+          </Group>
           <Group opacity={dotOpacity}>
             <Circle cx={dotX} cy={dotY} r={LOCATION_RADIUS + LOCATION_RING} color={colors.paper0} />
             <Circle cx={dotX} cy={dotY} r={LOCATION_RADIUS} color={colors.globeLocation} />

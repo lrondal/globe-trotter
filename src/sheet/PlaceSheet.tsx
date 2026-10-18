@@ -18,9 +18,15 @@ import { detentHeight, restingDetent, sheetTiming } from './detents';
 
 export type SheetPlace = {
   name: string;
+  /** Shown above the name: a Region's Country. */
+  overline?: string;
   lon: number;
   lat: number;
   status: Status;
+  /** Names of the Places inside it that its Status comes from, when not from its own Mark. */
+  via: string[];
+  /** Whether « Retirer » is offered (see Journal.canRemoveMark). */
+  canRemove: boolean;
   /** The Place's Note, of which the sheet shows the start; empty when it has none. */
   note: string;
 };
@@ -40,6 +46,12 @@ type Props = {
 
 /** Lines of the Note the sheet shows before cutting it off. */
 const EXCERPT_LINES = 3;
+/** Places of the provenance named before « … ». */
+const VIA_NAMES = 3;
+
+/** « via Kansai, Kanto, … », or nothing for a Status from the Place's own Mark. */
+const formatVia = (names: string[]) =>
+  names.length === 0 ? null : `via ${names.slice(0, VIA_NAMES).join(', ')}${names.length > VIA_NAMES ? ', …' : ''}`;
 
 export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpenNote }: Props) {
   // The last Place stays on the sheet while it slides away.
@@ -73,11 +85,13 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
           {shown && (
             <View style={styles.header}>
               <View style={styles.titles}>
+                {shown.overline && <Text style={styles.overline}>{shown.overline}</Text>}
                 <Text style={styles.title} numberOfLines={2}>
                   {shown.name}
                 </Text>
                 <View style={styles.status}>
                   <StatusBadge status={shown.status} />
+                  {formatVia(shown.via) && <Text style={styles.via}>{formatVia(shown.via)}</Text>}
                   <Text style={styles.meta}>{formatCoordinates(shown.lon, shown.lat)}</Text>
                 </View>
               </View>
@@ -95,7 +109,7 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
       </GestureDetector>
       {shown && (
         <View style={styles.body}>
-          <MarkActions status={shown.status} onMark={onMark} />
+          <MarkActions status={shown.status} canRemove={shown.canRemove} onMark={onMark} />
           {shown.note !== '' && (
             <Text style={styles.excerpt} numberOfLines={EXCERPT_LINES}>
               « {shown.note.trim()} »
@@ -111,9 +125,21 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
   );
 }
 
-/** « Marquer visité » and « À visiter » / « Retirer », as the Place's Status allows. */
-function MarkActions({ status, onMark }: { status: Status; onMark: (mark: Mark | null) => void }) {
+/**
+ * « Marquer visité » and « À visiter » / « Retirer », as the Place's Status allows. A Status
+ * the Place only inherits offers no « Retirer »: there is no Mark of its own to take back.
+ */
+function MarkActions({
+  status,
+  canRemove,
+  onMark,
+}: {
+  status: Status;
+  canRemove: boolean;
+  onMark: (mark: Mark | null) => void;
+}) {
   if (status === 'visited') {
+    if (!canRemove) return null;
     return (
       <View style={styles.actions}>
         <Button variant="secondary" icon={X} onPress={() => onMark(null)} style={styles.action}>
@@ -128,9 +154,11 @@ function MarkActions({ status, onMark }: { status: Status; onMark: (mark: Mark |
         Marquer visité
       </Button>
       {status === 'wish' ? (
-        <Button variant="secondary" icon={BookmarkMinus} onPress={() => onMark(null)} style={styles.action}>
-          Retirer
-        </Button>
+        canRemove && (
+          <Button variant="secondary" icon={BookmarkMinus} onPress={() => onMark(null)} style={styles.action}>
+            Retirer
+          </Button>
+        )
       ) : (
         <Button variant="secondary" icon={Bookmark} onPress={() => onMark('wish')} style={styles.action}>
           À visiter
@@ -174,6 +202,13 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: space[3],
   },
+  // 11 pt, uppercase, +0.08 em.
+  overline: {
+    ...text.overline,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 11 * 0.08,
+  },
   title: {
     ...text.displayL,
     color: colors.textPrimary,
@@ -184,6 +219,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 10,
+  },
+  via: {
+    ...text.caption,
+    color: colors.textSecondary,
   },
   meta: {
     ...text.caption,

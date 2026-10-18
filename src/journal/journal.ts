@@ -7,12 +7,16 @@ import type { Database } from './database.ts';
 export type Mark = 'visited' | 'wish';
 export type Status = Mark | 'unexplored';
 /** An Island is marked independently of its Country: neither one's Status reaches the other. */
-export type PlaceRef = { level: 'country' | 'island'; id: string };
+export type PlaceRef = { level: 'country' | 'island' | 'region'; id: string };
 
 type Options = {
   db: Database;
-  /** The reference Places the Journal counts over. */
-  atlas: { places: readonly PlaceRef[] };
+  atlas: {
+    /** The reference Places the Journal counts over. */
+    places: readonly PlaceRef[];
+    /** The Place a Place is inside, whose Status it reaches: a Region's Country. */
+    containerOf(place: PlaceRef): PlaceRef | null;
+  };
   now?: () => Date;
 };
 
@@ -87,6 +91,9 @@ const toPlace = (row: Row): Place => ({
 const monthOf = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
 const keyOf = (place: PlaceRef) => `${place.level}:${place.id}`;
+
+/** Visited outranks Wish, which outranks Unexplored. */
+const RANK: Record<Status, number> = { unexplored: 0, wish: 1, visited: 2 };
 /** The Place of a key from keyOf: levels never hold a colon. */
 const placeOf = (key: string): PlaceRef => {
   const colon = key.indexOf(':');
@@ -139,6 +146,24 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
       place.note,
     ]);
     places.set(keyOf(place), place);
+  };
+
+  /** The Places inside `place` that the Journal holds something about. */
+  const inside = (place: PlaceRef): PlaceRef[] => {
+    const key = keyOf(place);
+    return [...places.values()].filter((p) => {
+      const container = atlas.containerOf(p);
+      return container !== null && keyOf(container) === key;
+    });
+  };
+  /** The highest of a Place's own Mark and the Statuses of the Places inside it. */
+  const statusOf = (place: PlaceRef): Status => {
+    let status: Status = recordOf(place).mark ?? 'unexplored';
+    for (const child of inside(place)) {
+      const own = statusOf(child);
+      if (RANK[own] > RANK[status]) status = own;
+    }
+    return status;
   };
 
   /** The last change of Mark: the Place, and its Mark and Visit date before the change. */
@@ -210,13 +235,27 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
     place(place: PlaceRef): Place | null {
       return places.get(keyOf(place)) ?? null;
     },
-    status(place: PlaceRef): Status {
-      return recordOf(place).mark ?? 'unexplored';
+    status: statusOf,
+    /**
+     * Where an inherited Status comes from: the Places inside that have it, in no set
+     * order. Empty when the Place's own Mark makes its Status.
+     */
+    via(place: PlaceRef): PlaceRef[] {
+      const status = statusOf(place);
+      if (status === 'unexplored' || recordOf(place).mark === status) return [];
+      return inside(place)
+        .filter((child) => statusOf(child) === status)
+        .map(({ level, id }) => ({ level, id }));
+    },
+    /** Whether « Retirer » is offered: only on a Mark that makes the Place's Status. */
+    canRemoveMark(place: PlaceRef): boolean {
+      const { mark } = recordOf(place);
+      return mark !== null && mark === statusOf(place);
     },
     /** How many Places of the Atlas (Countries and Islands) have each Status, for the filter chips. */
     counts(): Record<Status, number> {
       const counts = { visited: 0, wish: 0, unexplored: 0 };
-      for (const place of atlas.places) counts[recordOf(place).mark ?? 'unexplored']++;
+      for (const place of atlas.places) counts[statusOf(place)]++;
       return counts;
     },
   };
