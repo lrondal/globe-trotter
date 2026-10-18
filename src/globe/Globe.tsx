@@ -84,6 +84,8 @@ const DRAG_AFTER_PINCH = 10;
 
 /** The Regions of the Country at index `country` in the Atlas, as the Atlas decoded them. */
 export type ShownRegions = { country: number; geometry: CountryGeometry };
+/** The colour layer of each Region of the Country at index `country`, in their order. */
+export type RegionLayers = { country: number; layers: Layer[] };
 
 export type GlobeHandle = {
   /** Flies to the Country at this index in the Atlas and opens its sheet, as a tap on it does. */
@@ -107,8 +109,8 @@ type Props = {
   layers: SharedValue<Layer[]>;
   /** The selected Country's Regions, once loaded; drawn only while their Country is selected. */
   regions: SharedValue<ShownRegions | null>;
-  /** The colour layer of each of those Regions, by its index in their geometry. */
-  regionLayers: SharedValue<Layer[]>;
+  /** The colour layers of those Regions. */
+  regionLayers: SharedValue<RegionLayers | null>;
   /** Index of the Region tapped, in the geometry of `regions`. */
   onSelectRegion: (region: number) => void;
   ref?: Ref<GlobeHandle>;
@@ -192,10 +194,15 @@ export const Globe = memo(function Globe({
     sheetHeight.value = withTiming(half, sheetTiming);
     scheduleOnRN(onSelect, country);
   };
-  const deselect = () => {
+  // Its Regions fade out with it.
+  const letGo = () => {
     'worklet';
     selectedCountry.value = -1;
     fade.value = withTiming(0, fadeTiming);
+  };
+  const deselect = () => {
+    'worklet';
+    letGo();
     flight.value = null;
     lift.value = withTiming(0, sheetTiming);
     sheetHeight.value = withTiming(0, sheetTiming);
@@ -217,8 +224,7 @@ export const Globe = memo(function Globe({
   // Recentring lets go of the selected Country: the whole globe faces the point, sheet closed.
   const flyTo = (point: Point) => {
     'worklet';
-    selectedCountry.value = -1;
-    fade.value = withTiming(0, fadeTiming);
+    letGo();
     spin.value = null;
     holding.value = 0;
     cancelAnimation(zoom);
@@ -254,10 +260,10 @@ export const Globe = memo(function Globe({
     const shown = regions.value;
     const shownLayers = regionLayers.value;
     // Their layers may arrive a frame before or after them: never draw one with the other's.
-    if (fade.value > 0 && shown && shownLayers.length === shown.geometry.footprints.length / 4) {
+    if (fade.value > 0 && shown && shownLayers?.country === shown.country) {
       const regionSinks = regionBuilders.value;
       for (const sink of regionSinks) sink.reset();
-      drawn += traceCountries(shown.geometry, camera, detailArea, regionSinks, shownLayers);
+      drawn += traceCountries(shown.geometry, camera, detailArea, regionSinks, shownLayers.layers);
       regionPaths.value = regionSinks.map((sink) => sink.build());
       notifyChange(regionPaths);
     }

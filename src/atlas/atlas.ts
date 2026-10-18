@@ -1,9 +1,11 @@
 // The Atlas: the reference Places, read-only. The Countries and Islands are decoded once; the
 // outlines of a Country's Regions are loaded and decoded the first time they are asked for,
 // off the UI thread, and kept.
-import type { Point } from '../globe/camera.ts';
 import { decodeCountries, type CountriesData, type CountryGeometry, type CountryRecord } from './countries.ts';
 import { decodeRegions, type RegionGeometry, type RegionIndex, type RegionRecord, type RegionsData } from './regions.ts';
+
+/** A point of the globe, in degrees. */
+type Point = { lon: number; lat: number };
 
 type Options = {
   countries: CountriesData;

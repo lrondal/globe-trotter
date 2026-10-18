@@ -27,6 +27,8 @@ export type SheetPlace = {
   via: string[];
   /** Whether « Retirer » is offered (see Journal.canRemoveMark). */
   canRemove: boolean;
+  /** « Marquer visitée » for a Region, « Marquer visité » otherwise. */
+  feminine?: boolean;
   /** The Place's Note, of which the sheet shows the start; empty when it has none. */
   note: string;
 };
@@ -109,7 +111,7 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
       </GestureDetector>
       {shown && (
         <View style={styles.body}>
-          <MarkActions status={shown.status} canRemove={shown.canRemove} onMark={onMark} />
+          <MarkActions status={shown.status} canRemove={shown.canRemove} feminine={shown.feminine} onMark={onMark} />
           {shown.note !== '' && (
             <Text style={styles.excerpt} numberOfLines={EXCERPT_LINES}>
               « {shown.note.trim()} »
@@ -132,10 +134,12 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
 function MarkActions({
   status,
   canRemove,
+  feminine,
   onMark,
 }: {
   status: Status;
   canRemove: boolean;
+  feminine?: boolean;
   onMark: (mark: Mark | null) => void;
 }) {
   if (status === 'visited') {
@@ -151,7 +155,7 @@ function MarkActions({
   return (
     <View style={styles.actions}>
       <Button variant="accent" icon={Check} onPress={() => onMark('visited')} style={styles.action}>
-        Marquer visité
+        {feminine ? 'Marquer visitée' : 'Marquer visité'}
       </Button>
       {status === 'wish' ? (
         canRemove && (

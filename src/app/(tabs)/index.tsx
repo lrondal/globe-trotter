@@ -3,13 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
-import { atlas, countries, countryGeometry, footprintOf, places } from '@/atlas';
+import { atlas, containerOf, countries, countryGeometry, footprintOf, places } from '@/atlas';
 import { FilterChip } from '@/components/FilterChip';
 import { STATUS_LABEL } from '@/components/StatusBadge';
 import { Toast } from '@/components/Toast';
 import type { Point } from '@/globe/camera';
-import { Globe, type GlobeHandle, type ShownRegions } from '@/globe/Globe';
-import { layerOf, type Filters, type Layer } from '@/globe/layers';
+import { Globe, type GlobeHandle, type RegionLayers, type ShownRegions } from '@/globe/Globe';
+import { layerOf, type Filters } from '@/globe/layers';
 import { useShowOnGlobe } from '@/globe/ShowOnGlobeProvider';
 import type { Journal, Mark, PlaceRef, Status } from '@/journal/journal';
 import { useJournal } from '@/journal/JournalProvider';
@@ -44,8 +44,10 @@ type Regions = { country: number; list: { id: string; name: string }[] };
 const regionRef = (id: string): PlaceRef => ({ level: 'region', id });
 
 /** The colour layer of each Region of `regions`, in their order. */
-const regionLayersOf = (journal: Journal, filters: Filters, regions: Regions) =>
-  regions.list.map(({ id }) => layerOf(journal.status(regionRef(id)), filters));
+const regionLayersOf = (journal: Journal, filters: Filters, regions: Regions): RegionLayers => ({
+  country: regions.country,
+  layers: regions.list.map(({ id }) => layerOf(journal.status(regionRef(id)), filters)),
+});
 
 /** The name of a Place, for the provenance of a Status. */
 const nameOf = (place: PlaceRef) =>
@@ -77,7 +79,7 @@ export default function GlobeScreen() {
   // The selected Country's Regions, loaded and decoded on the JS thread while the globe flies
   // on the UI thread, then handed to it with their colours.
   const shownRegions = useSharedValue<ShownRegions | null>(null);
-  const regionLayers = useSharedValue<Layer[]>([]);
+  const regionLayers = useSharedValue<RegionLayers | null>(null);
   useEffect(() => {
     if (selected === null || countries[selected].countryId) return;
     let current = true;
@@ -92,16 +94,14 @@ export default function GlobeScreen() {
   }, [shownRegions, selected]);
   // Their colours, which the globe waits for before drawing them.
   useEffect(() => {
-    regionLayers.value = regions ? regionLayersOf(journal, filters, regions) : [];
+    regionLayers.value = regions ? regionLayersOf(journal, filters, regions) : null;
   }, [regionLayers, journal, version, filters, regions]);
 
   /** The Place the sheet shows: the selected Region, or else the selected Country or Island. */
-  const sheetRef: PlaceRef | null =
-    selected === null
-      ? null
-      : region !== null && regions?.country === selected
-        ? regionRef(regions.list[region].id)
-        : places[selected];
+  const sheetRef = useMemo<PlaceRef | null>(() => {
+    if (selected === null) return null;
+    return region !== null && regions?.country === selected ? regionRef(regions.list[region].id) : places[selected];
+  }, [selected, region, regions]);
 
   const place = useMemo<SheetPlace | null>(() => {
     if (selected === null || !sheetRef) return null;
@@ -115,19 +115,18 @@ export default function GlobeScreen() {
       status: journal.status(sheetRef),
       via: journal.via(sheetRef).map(nameOf),
       canRemove: journal.canRemoveMark(sheetRef),
+      feminine: sheetRef.level === 'region',
       note: journal.place(sheetRef)?.note ?? '',
     };
-    // sheetRef is rebuilt every render: its parts are the dependencies.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, region, regions, journal, version]);
+  }, [selected, sheetRef, journal, version]);
 
   // The location link of a Note, say: fly to its Place and open its sheet.
   const { pending, shown } = useShowOnGlobe();
   useEffect(() => {
     if (!pending) return;
     // A Region is shown by its Country.
-    const target = pending.level === 'region' ? { level: 'country', id: atlas.region(pending.id)?.countryId } : pending;
-    const index = places.findIndex((p) => p.level === target.level && p.id === target.id);
+    const target = pending.level === 'region' ? containerOf(pending) : pending;
+    const index = places.findIndex((p) => p.level === target?.level && p.id === target.id);
     if (index >= 0) globe.current?.select(index);
     shown();
   }, [pending, shown]);
@@ -149,7 +148,8 @@ export default function GlobeScreen() {
   const onMark = (next: Mark | null) => {
     if (!sheetRef || !place) return;
     mark(sheetRef, next);
-    const status: Status = next ?? 'unexplored';
+    // Its Status after the change: a Mark taken back can leave one inherited.
+    const status: Status = journal.status(sheetRef);
     notify({ message: `${place.name} · ${STATUS_LABEL[status]}`, action: 'Annuler', onAction: undo });
   };
 
