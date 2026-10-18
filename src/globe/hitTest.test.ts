@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { decodeCountries, type CountriesData } from '../atlas/countries.ts';
-import type { View } from './camera.ts';
+import { decodeCountries, footprintOf, type CountriesData } from '../atlas/countries.ts';
+import { MAX_ZOOM, type View } from './camera.ts';
 import { countryAt } from './hitTest.ts';
 import { DETAIL, frameFor } from './projection.ts';
 
@@ -54,6 +54,17 @@ test('a micro-country beats its big neighbour when the tap lands just off it', (
 test('a tap well inside a big Country next to a micro-country still finds the big one', () => {
   // 30 pt west of Monaco, about 4°: Provence.
   assert.equal(tap({ lon: 7.42, lat: 43.74, zoom: 2 }, -30, 0), '250');
+});
+
+test('zoomed all the way in, a tap on a micro-state finds it, and a tap beside it its neighbour', () => {
+  // Centred on where the Atlas draws each: the Vatican, Monaco, San Marino, Liechtenstein.
+  for (const id of ['336', '492', '674', '438']) {
+    const { lon, lat } = footprintOf(geometry, countries.findIndex((c) => c.id === id));
+    assert.equal(tap({ lon, lat, zoom: MAX_ZOOM }), id, `at ${lon}, ${lat}`);
+  }
+  // 1.3 km east of the Vatican: Rome, in Italy.
+  const vatican = footprintOf(geometry, countries.findIndex((c) => c.id === '336'));
+  assert.equal(tap({ lon: vatican.lon, lat: vatican.lat, zoom: MAX_ZOOM }, 80, 0), '380');
 });
 
 test('a tap far from any coast finds nothing, even near a micro-country', () => {

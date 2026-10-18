@@ -34,6 +34,7 @@ import {
   drag,
   fit,
   fly,
+  holdZoom,
   pinch,
   release,
   zoomIn,
@@ -47,6 +48,7 @@ import { countryAt } from './hitTest';
 import { MeasurePanel, type Measures } from './MeasurePanel';
 import {
   DETAIL,
+  discRadius,
   frameFor,
   globeCenterY,
   globeRadius,
@@ -95,6 +97,9 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   const pinching = useSharedValue(false);
   const pinchedThisTouch = useSharedValue(false);
   const pinchStartZoom = useSharedValue(start.zoom);
+  const pinchFocal = useSharedValue({ x: 0, y: 0 });
+  /** 1 while + is held down, -1 while − is, 0 otherwise. */
+  const holding = useSharedValue<0 | 1 | -1>(0);
   const shownPosition = useSharedValue(position);
 
   const [detail, setDetail] = useState<Detail>('standard');
@@ -175,7 +180,9 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   });
   const cx = useDerivedValue(() => viewport.value.width / 2);
   const cy = useDerivedValue(() => globeCenterY(viewport.value) - lift.value);
-  const r = useDerivedValue(() => globeRadius(viewport.value) * zoom.value);
+  const r = useDerivedValue(() =>
+    discRadius(frameFor({ lon: lon.value, lat: lat.value, zoom: zoom.value }, viewport.value, lift.value)),
+  );
 
   useEffect(() => {
     shownPosition.value = position;
@@ -222,16 +229,24 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
       spin.value = release(view(), e.velocityX, e.velocityY, globeRadius(viewport.value));
     });
   const pinchGesture = Gesture.Pinch()
-    .onStart(() => {
+    .onStart((e) => {
       pinching.value = true;
       pinchedThisTouch.value = true;
       spin.value = null;
       stopFlight();
       cancelAnimation(zoom);
       pinchStartZoom.value = zoom.value;
+      pinchFocal.value = { x: e.focalX, y: e.focalY };
     })
     .onUpdate((e) => {
-      zoom.value = pinch(view(), pinchStartZoom.value, e.scale).zoom;
+      // The ground under the fingers stays under them, so a pinch zooms into what it is on.
+      const f = frame();
+      const focal = { x: e.focalX - f.cx, y: e.focalY - f.cy };
+      const moved = { x: e.focalX - pinchFocal.value.x, y: e.focalY - pinchFocal.value.y };
+      pinchFocal.value = { x: e.focalX, y: e.focalY };
+      const next = pinch(view(), pinchStartZoom.value, e.scale, focal, moved, globeRadius(viewport.value));
+      turnTo(next);
+      zoom.value = next.zoom;
     })
     .onFinalize(() => {
       pinching.value = false;
@@ -242,6 +257,7 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   useFrameCallback((frame) => {
     'worklet';
     const dt = frame.timeSincePreviousFrame ?? 0;
+    if (holding.value !== 0) zoom.value = holdZoom(view(), holding.value, dt).zoom;
     const spinning = spin.value;
     if (spinning) {
       const next = coast(view(), spinning, dt);
@@ -290,6 +306,16 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   };
   // On the UI thread, like the flight it may interrupt.
   const zoomWith = (step: (v: GlobeView) => GlobeView) => scheduleOnUI(zoomBy, step);
+  // Holding + or − zooms on and on until let go, so the whole range takes seconds, not presses.
+  const hold = (direction: 0 | 1 | -1) => {
+    'worklet';
+    if (direction !== 0) {
+      stopFlight();
+      cancelAnimation(zoom);
+    }
+    holding.value = direction;
+  };
+  const holdWith = (direction: 0 | 1 | -1) => scheduleOnUI(hold, direction);
   const recenter = async () => {
     const point = await onRecenter();
     if (point) scheduleOnUI(flyTo, point);
@@ -322,8 +348,20 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
 
       <Animated.View style={[styles.mapButtons, mapButtonsStyle]} pointerEvents="box-none">
         <IconButton icon={LocateFixed} label="Recentrer" onPress={recenter} />
-        <IconButton icon={Plus} label="Zoomer" onPress={() => zoomWith(zoomIn)} />
-        <IconButton icon={Minus} label="Dézoomer" onPress={() => zoomWith(zoomOut)} />
+        <IconButton
+          icon={Plus}
+          label="Zoomer"
+          onPress={() => zoomWith(zoomIn)}
+          onLongPress={() => holdWith(1)}
+          onPressOut={() => holdWith(0)}
+        />
+        <IconButton
+          icon={Minus}
+          label="Dézoomer"
+          onPress={() => zoomWith(zoomOut)}
+          onLongPress={() => holdWith(-1)}
+          onPressOut={() => holdWith(0)}
+        />
       </Animated.View>
 
       {__DEV__ && (

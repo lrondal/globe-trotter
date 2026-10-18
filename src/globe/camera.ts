@@ -9,10 +9,18 @@ export type View = { lon: number; lat: number; zoom: number };
 /** The center never tilts further than this, so a pole never faces the user (#1 R1). */
 export const MAX_LAT = 60;
 
-/** Degrees turned per point dragged, for a globe of `radius` points at zoom 1. */
-function degreesPerPoint(view: View, radius: number) {
+/**
+ * Degrees turned per point dragged, for a globe of `radius` points at zoom 1. With the whole
+ * globe in view, one on-screen radius turns it 75°, so it spins lightly like a ball. Zoomed
+ * in, the globe is a map and the ground stays under the finger: one radian per on-screen
+ * radius, and longitudes stretched by the shrinking of the parallels.
+ */
+function degreesPerPoint(view: View, radius: number): Point {
   'worklet';
-  return 75 / (radius * view.zoom);
+  const ball = Math.min(1, 1 / view.zoom);
+  const lat = (180 / Math.PI + (75 - 180 / Math.PI) * ball) / (radius * view.zoom);
+  const cos = Math.cos((view.lat * Math.PI) / 180);
+  return { lon: lat / (cos + (1 - cos) * ball), lat };
 }
 
 export function clampLat(lat: number) {
@@ -30,23 +38,69 @@ function wrapLon(lon: number) {
 export function drag(view: View, dx: number, dy: number, radius: number): View {
   'worklet';
   const k = degreesPerPoint(view, radius);
-  return { lon: wrapLon(view.lon - dx * k), lat: clampLat(view.lat + dy * k), zoom: view.zoom };
+  return { lon: wrapLon(view.lon - dx * k.lon), lat: clampLat(view.lat + dy * k.lat), zoom: view.zoom };
+}
+
+/** A distance on screen, in points. */
+export type Offset = { x: number; y: number };
+
+/** The ground (a unit vector) drawn `at` points from the globe's centre, or null off the globe. */
+function groundAt(view: View, at: Offset, radius: number): [number, number, number] | null {
+  'worklet';
+  const u = at.x / (radius * view.zoom);
+  const v = -at.y / (radius * view.zoom);
+  if (u * u + v * v >= 1) return null;
+  const w = Math.sqrt(1 - u * u - v * v);
+  const λ = (view.lon * Math.PI) / 180;
+  const φ = (view.lat * Math.PI) / 180;
+  // u e + v n + w f, with the view's east, north and forward vectors (see projection.ts).
+  const out = w * Math.cos(φ) - v * Math.sin(φ);
+  return [out * Math.cos(λ) - u * Math.sin(λ), out * Math.sin(λ) + u * Math.cos(λ), v * Math.cos(φ) + w * Math.sin(φ)];
+}
+
+/**
+ * The view, at the zoom of `view`, that draws `ground` (a unit vector) `at` points from the
+ * globe's centre; `view` itself when no view can. Exact, so a pinch never drifts.
+ */
+function showAt(view: View, ground: [number, number, number], at: Offset, radius: number): View {
+  'worklet';
+  const [px, py, pz] = ground;
+  const u = at.x / (radius * view.zoom);
+  const v = -at.y / (radius * view.zoom);
+  // East of the centre by u: the longitude. Then north of it by v, facing the user: the latitude.
+  const cosφ = Math.hypot(px, py);
+  if (Math.abs(u) >= cosφ) return view;
+  const q = Math.sqrt(cosφ * cosφ - u * u);
+  const ρ = Math.hypot(q, pz);
+  if (Math.abs(v) >= ρ) return view;
+  const lon = Math.atan2(py, px) - Math.asin(u / cosφ);
+  const lat = Math.atan2(pz, q) - Math.asin(v / ρ);
+  return { lon: wrapLon((lon * 180) / Math.PI), lat: clampLat((lat * 180) / Math.PI), zoom: view.zoom };
 }
 
 export const MIN_ZOOM = 0.8;
-export const MAX_ZOOM = 24;
-/** Zoom factor of the + and − buttons. */
-export const ZOOM_STEP = 1.6;
+/** Deep enough for the Vatican, the smallest Country, to be a 44 pt target on any phone (#26). */
+export const MAX_ZOOM = 2000;
+/** Zoom factor of a press on the + and − buttons. */
+export const ZOOM_STEP = 2;
+/** Zoom factor per second while + or − is held: the whole range in about 3 s. */
+const HOLD_RATE = 10;
 
 function withZoom(view: View, zoom: number): View {
   'worklet';
   return { lon: view.lon, lat: view.lat, zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom)) };
 }
 
-/** The view during a pinch that started at `startZoom` and has scaled by `scale` since. */
-export function pinch(view: View, startZoom: number, scale: number): View {
+/**
+ * The view during a pinch that started at `startZoom` and has scaled by `scale` since. The
+ * ground under the fingers stays under them: `focal` is the point between the fingers, from
+ * the globe's centre on screen, and `moved` how far it moved since the last update.
+ */
+export function pinch(view: View, startZoom: number, scale: number, focal: Offset, moved: Offset, radius: number): View {
   'worklet';
-  return withZoom(view, startZoom * scale);
+  const zoomed = withZoom(view, startZoom * scale);
+  const ground = groundAt(view, { x: focal.x - moved.x, y: focal.y - moved.y }, radius);
+  return ground ? showAt(zoomed, ground, focal, radius) : zoomed;
 }
 
 export function zoomIn(view: View): View {
@@ -59,19 +113,25 @@ export function zoomOut(view: View): View {
   return withZoom(view, view.zoom / ZOOM_STEP);
 }
 
+/** The view `dt` milliseconds later while + (`direction` 1) or − (-1) is held down. */
+export function holdZoom(view: View, direction: 1 | -1, dt: number): View {
+  'worklet';
+  return withZoom(view, view.zoom * Math.pow(HOLD_RATE, (direction * dt) / 1000));
+}
+
 /** Angular speed of a coasting globe, in degrees per second. */
 export type Spin = { lon: number; lat: number };
 
 /** Coasting slows by a factor e every this many milliseconds. */
 const SPIN_DECAY_MS = 325;
-/** Below this speed (degrees per second) the globe stops. */
+/** Below this speed (degrees per second at zoom 1, a few points per second on screen) the globe stops. */
 const SPIN_STOP = 1;
 
 /** The spin a finger leaves the globe with when lifted at (vx, vy) points per second. */
 export function release(view: View, vx: number, vy: number, radius: number): Spin {
   'worklet';
   const k = degreesPerPoint(view, radius);
-  return { lon: -vx * k, lat: vy * k };
+  return { lon: -vx * k.lon, lat: vy * k.lat };
 }
 
 /** Advances a coasting globe by `dt` milliseconds; the spin is null once it has stopped. */
@@ -83,7 +143,8 @@ export function coast(view: View, spin: Spin, dt: number): { view: View; spin: S
   // Hitting the tilt limit ends the vertical part of the spin.
   const latSpin = Math.abs(lat) === MAX_LAT ? 0 : spin.lat * decay;
   const lonSpin = spin.lon * decay;
-  return { view: next, spin: Math.hypot(lonSpin, latSpin) < SPIN_STOP ? null : { lon: lonSpin, lat: latSpin } };
+  const stopped = Math.hypot(lonSpin, latSpin) < SPIN_STOP / view.zoom;
+  return { view: next, spin: stopped ? null : { lon: lonSpin, lat: latSpin } };
 }
 
 /** A point of the globe, in degrees. */
@@ -136,11 +197,16 @@ export function fly(from: Shot, to: Shot, elapsed: number): { shot: Shot; done: 
   'worklet';
   if (elapsed >= FLIGHT_MS) return { shot: to, done: true };
   const e = cubicInOut(Math.max(0, elapsed) / FLIGHT_MS);
+  // The globe turns in step with the width in view, which shrinks geometrically with the
+  // zoom: most of the turn while zoomed out, so the Place glides steadily to where it lands
+  // instead of shooting off screen when the zoom changes a thousandfold.
+  const widths = from.view.zoom / to.view.zoom;
+  const turned = Math.abs(widths - 1) < 1e-9 ? e : (Math.pow(widths, e) - 1) / (widths - 1);
   // The short way round: the longitude difference brought into [-180, 180).
   const dLon = wrapLon(to.view.lon - from.view.lon);
   const view = {
-    lon: wrapLon(from.view.lon + dLon * e),
-    lat: from.view.lat + (to.view.lat - from.view.lat) * e,
+    lon: wrapLon(from.view.lon + dLon * turned),
+    lat: from.view.lat + (to.view.lat - from.view.lat) * turned,
     // Geometric, so the zoom feels even whether it doubles at 1× or at 10×.
     zoom: from.view.zoom * Math.pow(to.view.zoom / from.view.zoom, e),
   };
