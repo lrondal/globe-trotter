@@ -172,11 +172,11 @@ export const Globe = memo(function Globe({ start, position, onRecenter, sheetHei
   const landPaths = useSharedValue(useMemo(() => LAYERS.map(() => Skia.Path.Make()), []));
   useDerivedValue(() => {
     if (viewport.value.width === 0) return;
-    const camera = { lon: lon.value, lat: lat.value, zoom: zoom.value };
     const sinks = builders.value;
     for (const sink of sinks) sink.reset();
     const start = performance.now();
-    points.value = traceCountries(countryGeometry, frameFor(camera, viewport.value, lift.value), detailArea, sinks, layers.value);
+    const camera = frameFor({ lon: lon.value, lat: lat.value, zoom: zoom.value }, viewport.value, lift.value);
+    points.value = traceCountries(countryGeometry, camera, detailArea, sinks, layers.value);
     landPaths.value = sinks.map((sink) => sink.build());
     buildMs.value = performance.now() - start;
     notifyChange(landPaths);

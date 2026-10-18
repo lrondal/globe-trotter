@@ -26,12 +26,14 @@ export type Place = PlaceRef & {
 
 /** Schema changes, in order: the database records how many it has run in `user_version`. */
 const MIGRATIONS = [
+  // A Place is known by its level and id together: Country and City ids are both numeric.
   `CREATE TABLE places (
-    id TEXT PRIMARY KEY,
     level TEXT NOT NULL,
+    id TEXT NOT NULL,
     mark TEXT,
     visit_date TEXT,
-    note TEXT NOT NULL DEFAULT ''
+    note TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (level, id)
   )`,
 ];
 
@@ -39,9 +41,14 @@ function migrate(db: Database) {
   const [{ user_version: done }] = db.all<{ user_version: number }>('PRAGMA user_version');
   if (done >= MIGRATIONS.length) return;
   db.exec('BEGIN');
-  for (const migration of MIGRATIONS.slice(done)) db.exec(migration);
-  db.exec(`PRAGMA user_version = ${MIGRATIONS.length}`);
-  db.exec('COMMIT');
+  try {
+    for (const migration of MIGRATIONS.slice(done)) db.exec(migration);
+    db.exec(`PRAGMA user_version = ${MIGRATIONS.length}`);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 type Row = { id: string; level: 'country'; mark: Mark | null; visit_date: string | null; note: string };
@@ -59,28 +66,32 @@ const monthOf = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() 
 
 const hasContent = (place: Place) => place.note !== '';
 
+const keyOf = (place: PlaceRef) => `${place.level}:${place.id}`;
+
 export function openJournal({ db, atlas, now = () => new Date() }: Options) {
   migrate(db);
   const places = new Map(
-    db.all<Row>('SELECT id, level, mark, visit_date, note FROM places').map((row) => [row.id, toPlace(row)]),
+    db.all<Row>('SELECT id, level, mark, visit_date, note FROM places').map((row) => [keyOf(row), toPlace(row)]),
   );
 
-  const empty = (place: PlaceRef): Place => ({ level: place.level, id: place.id, mark: null, visitDate: null, note: '' });
+  /** The Journal's record of `place`, or a blank one when it has none. */
+  const recordOf = (place: PlaceRef): Place =>
+    places.get(keyOf(place)) ?? { level: place.level, id: place.id, mark: null, visitDate: null, note: '' };
   /** Records `place`, or forgets it once it holds nothing. */
   const save = (place: Place) => {
     if (place.mark === null && !hasContent(place)) {
-      db.run('DELETE FROM places WHERE id = ?', [place.id]);
-      places.delete(place.id);
+      db.run('DELETE FROM places WHERE level = ? AND id = ?', [place.level, place.id]);
+      places.delete(keyOf(place));
       return;
     }
-    db.run('INSERT OR REPLACE INTO places (id, level, mark, visit_date, note) VALUES (?, ?, ?, ?, ?)', [
-      place.id,
+    db.run('INSERT OR REPLACE INTO places (level, id, mark, visit_date, note) VALUES (?, ?, ?, ?, ?)', [
       place.level,
+      place.id,
       place.mark,
       place.visitDate,
       place.note,
     ]);
-    places.set(place.id, place);
+    places.set(keyOf(place), place);
   };
 
   /** The last change of Mark: the Place, and its Mark and Visit date before the change. */
@@ -88,7 +99,7 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
 
   return {
     mark(place: PlaceRef, mark: Mark | null) {
-      const before = places.get(place.id) ?? empty(place);
+      const before = recordOf(place);
       // The Visit date belongs to the visit: marking Visited dates it, leaving Visited drops it.
       const visitDate = mark === 'visited' ? (before.visitDate ?? monthOf(now())) : null;
       save({ ...before, mark, visitDate });
@@ -100,23 +111,23 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
       const { place, mark, visitDate } = undoable;
       undoable = null;
       // Only the Mark goes back: content written since stays.
-      save({ ...(places.get(place.id) ?? empty(place)), mark, visitDate });
+      save({ ...recordOf(place), mark, visitDate });
       return place;
     },
     writeNote(place: PlaceRef, note: string) {
-      save({ ...(places.get(place.id) ?? empty(place)), note });
+      save({ ...recordOf(place), note });
     },
     /** The Journal's record of a Place, or null when it holds nothing about it. */
     place(place: PlaceRef): Place | null {
-      return places.get(place.id) ?? null;
+      return places.get(keyOf(place)) ?? null;
     },
     status(place: PlaceRef): Status {
-      return places.get(place.id)?.mark ?? 'unexplored';
+      return recordOf(place).mark ?? 'unexplored';
     },
     /** How many Countries of the Atlas have each Status, for the filter chips. */
     counts(): Record<Status, number> {
       const counts = { visited: 0, wish: 0, unexplored: 0 };
-      for (const { id } of atlas.countries) counts[places.get(id)?.mark ?? 'unexplored']++;
+      for (const { id } of atlas.countries) counts[recordOf({ level: 'country', id }).mark ?? 'unexplored']++;
       return counts;
     },
   };

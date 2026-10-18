@@ -24,7 +24,7 @@ test('Marks survive closing and reopening the app', () => {
   assert.equal(openJournal({ db, atlas }).status(france), 'wish');
 });
 
-test('Retirer returns a Country to Unexplored', () => {
+test('removing the Mark returns a Country to Unexplored', () => {
   const j = journal();
   j.mark(france, 'visited');
   j.mark(france, null);
@@ -69,7 +69,7 @@ test('an undone Mark stays undone after reopening the app', () => {
   assert.equal(openJournal({ db, atlas }).status(france), 'unexplored');
 });
 
-test('Retirer keeps the Note of the Country', () => {
+test('removing the Mark keeps the Note of the Country', () => {
   const j = journal();
   j.writeNote(france, 'Le marché de Sarlat');
   j.mark(france, 'visited');
@@ -93,4 +93,15 @@ test('the filter chips count the Countries of each Status', () => {
   j.mark({ level: 'country', id: '620' }, 'wish');
   j.writeNote({ level: 'country', id: 'x-kosovo' }, 'Prizren, un jour');
   assert.deepEqual(j.counts(), { visited: 2, wish: 1, unexplored: 1 });
+});
+
+test('undoing the removal of a Mark gives back the Mark and its Visit date', () => {
+  let today = new Date(2019, 6, 1);
+  const j = openJournal({ db: memoryDatabase(), atlas, now: () => today });
+  j.mark(france, 'visited');
+  today = new Date(2026, 9, 18);
+  j.mark(france, null);
+  j.undo();
+  assert.equal(j.status(france), 'visited');
+  assert.equal(j.place(france)?.visitDate, '2019-07');
 });

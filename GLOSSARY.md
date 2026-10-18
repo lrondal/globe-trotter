@@ -43,7 +43,7 @@ _Avoid_: Pin, bookmark, favourite
 The Status of a Place with no Visited or Wish Mark on it or inside it. An Unexplored Place can still hold a Note and Photos.
 
 **Visit date**:
-The single month-precision date the user associates with having visited a Place. It defaults to the month the Place was marked Visited and can be edited to record an earlier trip; a Place without its own Visit date shows the range of the Visit dates inside it.
+The single month-precision date the user associates with having visited a Place. It defaults to the month the Place was marked Visited and can be edited to record an earlier trip; it goes when the Place stops being marked Visited (undoing that change brings it back); a Place without its own Visit date shows the range of the Visit dates inside it.
 _Avoid_: Trip, visitedAt
 
 ## Content

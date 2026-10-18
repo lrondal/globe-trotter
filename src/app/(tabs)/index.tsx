@@ -64,7 +64,6 @@ export default function GlobeScreen() {
     return { name: countries[selected].name, lon, lat, status: journal.status(countryRef(selected)) };
   }, [selected, journal, version]);
 
-  const onSelect = useCallback((country: number | null) => setSelected(country), []);
   const onClose = useCallback(() => {
     globe.current?.deselect();
     setSelected(null);
@@ -114,7 +113,7 @@ export default function GlobeScreen() {
         position={position}
         onRecenter={recenter}
         sheetHeight={sheetHeight}
-        onSelect={onSelect}
+        onSelect={setSelected}
         layers={layers}
       />
       {screenHeight > 0 && (
@@ -129,7 +128,13 @@ export default function GlobeScreen() {
       {/* Beside the map buttons; above the sheet, so the toast of a Mark shows over it. */}
       <Animated.View style={[styles.bottomLeft, bottomLeftStyle]} pointerEvents="box-none">
         {notice ? (
-          <Toast {...notice} onHide={hideNotice} />
+          <Toast
+            key={notice.key}
+            message={notice.message}
+            action={notice.action}
+            onAction={notice.onAction}
+            onHide={hideNotice}
+          />
         ) : (
           journalIsEmpty &&
           selected === null && (

@@ -3,8 +3,8 @@ import { openDatabaseSync } from 'expo-sqlite';
 
 import type { Database } from './database';
 
-export function deviceDatabase(name = 'journal.db'): Database {
-  const db = openDatabaseSync(name);
+export function deviceDatabase(): Database {
+  const db = openDatabaseSync('journal.db');
   return {
     exec: (sql) => db.execSync(sql),
     run: (sql, params = []) => void db.runSync(sql, params),
