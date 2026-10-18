@@ -3,15 +3,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
-import { countries, countryGeometry, footprintOf, places } from '@/atlas';
+import { atlas, containerOf, countries, countryGeometry, footprintOf, places } from '@/atlas';
 import { FilterChip } from '@/components/FilterChip';
 import { STATUS_LABEL } from '@/components/StatusBadge';
 import { Toast } from '@/components/Toast';
 import type { Point } from '@/globe/camera';
-import { Globe, type GlobeHandle } from '@/globe/Globe';
+import { Globe, type GlobeHandle, type RegionLayers, type ShownRegions } from '@/globe/Globe';
 import { layerOf, type Filters } from '@/globe/layers';
 import { useShowOnGlobe } from '@/globe/ShowOnGlobeProvider';
-import type { Journal, Mark, Status } from '@/journal/journal';
+import type { Journal, Mark, PlaceRef, Status } from '@/journal/journal';
 import { useJournal } from '@/journal/JournalProvider';
 import { recenterAction } from '@/location/launch';
 import { useLocation } from '@/location/LocationProvider';
@@ -35,8 +35,23 @@ const STATUSES: Status[] = ['visited', 'wish', 'unexplored'];
 const ALL_SHOWN: Filters = { visited: true, wish: true, unexplored: true };
 
 /** The colour layer of every Country and Island, by its index in the Atlas. */
-const layersOf = (journal: Journal, filters: Filters) =>
-  places.map((place) => layerOf(journal.status(place), filters));
+const layersOf = (journal: Journal, filters: Filters, selected: number | null) =>
+  places.map((place, i) => layerOf(journal.status(place), filters, i === selected));
+
+/** The Regions of the selected Country, as the Globe draws them and the sheet names them. */
+type Regions = { country: number; list: { id: string; name: string }[] };
+
+const regionRef = (id: string): PlaceRef => ({ level: 'region', id });
+
+/** The colour layer of each Region of `regions`, in their order. */
+const regionLayersOf = (journal: Journal, filters: Filters, regions: Regions): RegionLayers => ({
+  country: regions.country,
+  layers: regions.list.map(({ id }) => layerOf(journal.status(regionRef(id)), filters)),
+});
+
+/** The name of a Place, for the provenance of a Status. */
+const nameOf = (place: PlaceRef) =>
+  place.level === 'region' ? (atlas.region(place.id)?.name ?? '') : (countries.find((c) => c.id === place.id)?.name ?? '');
 
 export default function GlobeScreen() {
   const { launch, position, permission, request, locate } = useLocation();
@@ -45,6 +60,9 @@ export default function GlobeScreen() {
   const sheetHeight = useSharedValue(0);
   const [screenHeight, setScreenHeight] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
+  /** The Regions of the selected Country, once loaded, and the one selected among them. */
+  const [regions, setRegions] = useState<Regions | null>(null);
+  const [region, setRegion] = useState<number | null>(null);
   const [filters, setFilters] = useState(ALL_SHOWN);
   const [notice, setNotice] = useState<Notice | null>(null);
   const noticeKey = useRef(0);
@@ -52,49 +70,87 @@ export default function GlobeScreen() {
   const hideNotice = useCallback(() => setNotice(null), []);
 
   // Written from here, read by the globe on the UI thread: marking never re-renders the globe.
-  const layers = useSharedValue(useMemo(() => layersOf(journal, ALL_SHOWN), [journal]));
+  const layers = useSharedValue(useMemo(() => layersOf(journal, ALL_SHOWN, null), [journal]));
   useEffect(() => {
-    layers.value = layersOf(journal, filters);
-  }, [layers, journal, version, filters]);
+    layers.value = layersOf(journal, filters, selected);
+  }, [layers, journal, version, filters, selected]);
   const counts = journal.counts();
 
-  const place = useMemo<SheetPlace | null>(() => {
+  // The selected Country's Regions, loaded and decoded on the JS thread while the globe flies
+  // on the UI thread, then handed to it with their colours.
+  const shownRegions = useSharedValue<ShownRegions | null>(null);
+  const regionLayers = useSharedValue<RegionLayers | null>(null);
+  useEffect(() => {
+    if (selected === null || countries[selected].countryId) return;
+    let current = true;
+    atlas.regionGeometry(countries[selected].id).then((loaded) => {
+      if (!current || !loaded) return;
+      shownRegions.value = { country: selected, geometry: loaded.geometry };
+      setRegions({ country: selected, list: loaded.regions });
+    });
+    return () => {
+      current = false;
+    };
+  }, [shownRegions, selected]);
+  // Their colours, which the globe waits for before drawing them.
+  useEffect(() => {
+    regionLayers.value = regions ? regionLayersOf(journal, filters, regions) : null;
+  }, [regionLayers, journal, version, filters, regions]);
+
+  /** The Place the sheet shows: the selected Region, or else the selected Country or Island. */
+  const sheetRef = useMemo<PlaceRef | null>(() => {
     if (selected === null) return null;
-    const { lon, lat } = footprintOf(countryGeometry, selected);
-    const ref = places[selected];
+    return region !== null && regions?.country === selected ? regionRef(regions.list[region].id) : places[selected];
+  }, [selected, region, regions]);
+
+  const place = useMemo<SheetPlace | null>(() => {
+    if (selected === null || !sheetRef) return null;
+    const own = sheetRef.level === 'region' ? atlas.region(sheetRef.id) : null;
+    const { lon, lat } = own ?? footprintOf(countryGeometry, selected);
     return {
-      name: countries[selected].name,
+      name: own?.name ?? countries[selected].name,
+      overline: own ? countries[selected].name : undefined,
       lon,
       lat,
-      status: journal.status(ref),
-      note: journal.place(ref)?.note ?? '',
+      status: journal.status(sheetRef),
+      via: journal.via(sheetRef).map(nameOf),
+      canRemove: journal.canRemoveMark(sheetRef),
+      feminine: sheetRef.level === 'region',
+      note: journal.place(sheetRef)?.note ?? '',
     };
-  }, [selected, journal, version]);
+  }, [selected, sheetRef, journal, version]);
 
   // The location link of a Note, say: fly to its Place and open its sheet.
   const { pending, shown } = useShowOnGlobe();
   useEffect(() => {
     if (!pending) return;
-    const index = places.findIndex((p) => p.level === pending.level && p.id === pending.id);
+    // A Region is shown by its Country.
+    const target = pending.level === 'region' ? containerOf(pending) : pending;
+    const index = places.findIndex((p) => p.level === target?.level && p.id === target.id);
     if (index >= 0) globe.current?.select(index);
     shown();
   }, [pending, shown]);
 
   const onOpenNote = () => {
-    if (selected === null) return;
-    const { level, id } = places[selected];
-    router.push({ pathname: '/note/[level]/[id]', params: { level, id } });
+    if (!sheetRef) return;
+    router.push({ pathname: '/note/[level]/[id]', params: sheetRef });
   };
 
+  // A Country, an Island or the sea: any Region selected goes.
+  const onSelect = useCallback((country: number | null) => {
+    setSelected(country);
+    setRegion(null);
+  }, []);
   const onClose = useCallback(() => {
     globe.current?.deselect();
-    setSelected(null);
-  }, []);
+    onSelect(null);
+  }, [onSelect]);
   const onMark = (next: Mark | null) => {
-    if (selected === null) return;
-    mark(places[selected], next);
-    const status: Status = next ?? 'unexplored';
-    notify({ message: `${countries[selected].name} · ${STATUS_LABEL[status]}`, action: 'Annuler', onAction: undo });
+    if (!sheetRef || !place) return;
+    mark(sheetRef, next);
+    // Its Status after the change: a Mark taken back can leave one inherited.
+    const status: Status = journal.status(sheetRef);
+    notify({ message: `${place.name} · ${STATUS_LABEL[status]}`, action: 'Annuler', onAction: undo });
   };
 
   // Stable between renders, so the memoised globe only re-renders when the position moves.
@@ -135,8 +191,11 @@ export default function GlobeScreen() {
         position={position}
         onRecenter={recenter}
         sheetHeight={sheetHeight}
-        onSelect={setSelected}
+        onSelect={onSelect}
         layers={layers}
+        regions={shownRegions}
+        regionLayers={regionLayers}
+        onSelectRegion={setRegion}
       />
       {screenHeight > 0 && (
         <PlaceSheet

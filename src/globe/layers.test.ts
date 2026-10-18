@@ -21,3 +21,10 @@ test('hiding Visited or Wish leaves those Countries as plain land', () => {
 test('hiding Unexplored leaves only the outlines of those Countries', () => {
   assert.equal(layerOf('unexplored', { ...all, unexplored: false }), LAYER.outline);
 });
+
+test('the selected Country takes the layer of its tint, which its Regions show on', () => {
+  assert.equal(layerOf('visited', all, true), LAYER.visitedTint);
+  assert.equal(layerOf('wish', all, true), LAYER.wishTint);
+  assert.equal(layerOf('unexplored', all, true), LAYER.land);
+  assert.equal(layerOf('visited', { ...all, visited: false }, true), LAYER.land);
+});

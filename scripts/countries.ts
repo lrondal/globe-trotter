@@ -52,7 +52,7 @@ const NO_ISO_CODE: Record<string, CountryRecord> = {
 
 // ISO 3166-1 entries the 50m map does not draw on their own. Any other ISO code missing from
 // the map fails the build.
-const NOT_ON_THE_MAP: Record<string, string> = {
+export const NOT_ON_THE_MAP: Record<string, string> = {
   '074': 'Bouvet Island: not in the 50m map',
   '162': 'Christmas Island: part of x-indian-ocean-territories',
   '166': 'Cocos Islands: part of x-indian-ocean-territories',
@@ -148,13 +148,17 @@ function ringCoordinates(indices: number[], arcs: Point[][]): [number, number][]
   });
 }
 
-type Point = [lon: number, lat: number, area: number];
+export type Point = [lon: number, lat: number, area: number];
 
 /** Absolute, densified arcs whose points carry their spherical Visvalingam area. */
 function levelledArcs(world: WorldAtlas): Point[][] {
   const toLonLat = transform(world.transform!);
-  const arcs = world.arcs.map((arc) => densify(arc.map((p, i) => toLonLat(p, i > 0) as [number, number])));
-  const topology = { type: 'Topology', objects: {}, arcs } as unknown as Parameters<typeof presimplify>[0];
+  return levelArcs(world.arcs.map((arc) => arc.map((p, i) => toLonLat(p, i > 0) as [number, number])));
+}
+
+/** Densifies arcs in degrees and gives each point its spherical Visvalingam area. */
+export function levelArcs(arcs: [number, number][][]): Point[][] {
+  const topology = { type: 'Topology', objects: {}, arcs: arcs.map(densify) } as unknown as Parameters<typeof presimplify>[0];
   return presimplify(topology, sphericalTriangleArea).arcs as unknown as Point[][];
 }
 
@@ -173,12 +177,18 @@ function densify(arc: [number, number][]): [number, number][] {
   return out;
 }
 
-function encodeArc(arc: Point[]): number[] {
+/** The level of a point of Visvalingam area `area` (see CountriesData): arc ends are 0. */
+export function levelOf(area: number) {
+  return Number.isFinite(area) ? Math.min(255, Math.max(1, Math.floor(-2 * Math.log2(area || 1e-30)))) : 0;
+}
+
+/** An arc in the CountriesData encoding. */
+export function encodeArc(arc: Point[]): number[] {
   const flat: number[] = [];
   let [lon0, lat0] = [0, 0];
   for (const [lon, lat, area] of arc) {
     const [lon1, lat1] = [Math.round(lon * COORD_SCALE), Math.round(lat * COORD_SCALE)];
-    const level = Number.isFinite(area) ? Math.min(255, Math.max(1, Math.floor(-2 * Math.log2(area || 1e-30)))) : 0;
+    const level = levelOf(area);
     flat.push(lon1 - lon0, lat1 - lat0, level);
     [lon0, lat0] = [lon1, lat1];
   }
