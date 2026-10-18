@@ -3,7 +3,7 @@
 import { router } from 'expo-router';
 import { ChevronLeft, MapPin, Plus } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AppState, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -75,7 +75,14 @@ export function NoteScreen({ place, name, country, lon, lat }: Props) {
     const timer = setTimeout(() => save.current(), SAVE_AFTER);
     return () => clearTimeout(timer);
   }, [note]);
-  useEffect(() => () => save.current(), []);
+  useEffect(() => {
+    // Leaving the app may be the last chance: it can be killed in the background.
+    const leaving = AppState.addEventListener('change', (state) => state !== 'active' && save.current());
+    return () => {
+      leaving.remove();
+      save.current();
+    };
+  }, []);
 
   const [draft, setDraft] = useState('');
   const submitTodo = () => {

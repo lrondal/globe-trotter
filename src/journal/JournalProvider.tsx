@@ -31,36 +31,25 @@ export function JournalProvider({ children }: { children: ReactNode }) {
   // A new value after each change, so every reader re-renders.
   const state = useMemo<JournalState>(() => {
     const changed = () => setVersion((v) => v + 1);
+    /** The Journal's own write, followed by a re-render of its readers. */
+    const writing =
+      <Args extends unknown[]>(write: (...args: Args) => unknown) =>
+      (...args: Args) => {
+        write(...args);
+        changed();
+      };
     return {
       journal,
       version,
-      mark(place, mark) {
-        journal.mark(place, mark);
-        changed();
-      },
+      mark: writing(journal.mark),
       undo() {
         if (journal.undo()) changed();
       },
-      writeNote(place, note) {
-        journal.writeNote(place, note);
-        changed();
-      },
-      addTodo(place, text) {
-        journal.addTodo(place, text);
-        changed();
-      },
-      checkTodo(id, done) {
-        journal.checkTodo(id, done);
-        changed();
-      },
-      moveTodo(id, to) {
-        journal.moveTodo(id, to);
-        changed();
-      },
-      deleteTodo(id) {
-        journal.deleteTodo(id);
-        changed();
-      },
+      writeNote: writing(journal.writeNote),
+      addTodo: writing(journal.addTodo),
+      checkTodo: writing(journal.checkTodo),
+      moveTodo: writing(journal.moveTodo),
+      deleteTodo: writing(journal.deleteTodo),
     };
   }, [journal, version]);
 

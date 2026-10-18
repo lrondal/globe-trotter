@@ -172,15 +172,17 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
     addTodo(place: PlaceRef, text: string): Todo {
       const list = todos.get(keyOf(place)) ?? [];
       const todo = { id: ++lastTodoId, text, done: false };
-      db.run('INSERT INTO todos (id, level, place_id, text, done, position) VALUES (?, ?, ?, ?, 0, ?)', [
-        todo.id,
-        place.level,
-        place.id,
-        text,
-        list.length,
-      ]);
-      todos.set(keyOf(place), [...list, todo]);
-      save(recordOf(place));
+      transaction(db, () => {
+        db.run('INSERT INTO todos (id, level, place_id, text, done, position) VALUES (?, ?, ?, ?, 0, ?)', [
+          todo.id,
+          place.level,
+          place.id,
+          text,
+          list.length,
+        ]);
+        todos.set(keyOf(place), [...list, todo]);
+        save(recordOf(place));
+      });
       return todo;
     },
     checkTodo(id: number, done: boolean) {
