@@ -5,18 +5,19 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 import { containerOf, places } from '@/atlas';
 
 import { deviceDatabase } from './deviceDatabase';
-import { openJournal, type Journal, type Mark, type PlaceRef } from './journal';
+import { openJournal, type City, type Journal, type Mark, type PlaceRef } from './journal';
 
 type JournalState = {
   /** Read-only here: write through the functions below, so the screens re-render. */
   journal: Journal;
   /** Goes up with every change: a dependency for whatever is derived from the Journal. */
   version: number;
-  mark(place: PlaceRef, mark: Mark | null): void;
+  /** A City given whole enters the Journal with its Mark (see Journal.mark). */
+  mark(place: PlaceRef | City, mark: Mark | null): void;
   /** Takes back the last change of Mark (see Journal.undo). */
   undo(): void;
-  writeNote(place: PlaceRef, note: string): void;
-  addTodo(place: PlaceRef, text: string): void;
+  writeNote(place: PlaceRef | City, note: string): void;
+  addTodo(place: PlaceRef | City, text: string): void;
   checkTodo(id: number, done: boolean): void;
   moveTodo(id: number, to: number): void;
   deleteTodo(id: number): void;

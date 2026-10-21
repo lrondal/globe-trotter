@@ -59,6 +59,7 @@
     "typecheck": "tsc --noEmit",
     "data:countries": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/build-countries.ts",
     "data:regions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/build-regions.ts",
+    "data:cities": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/build-cities.ts",
     "lint": "expo lint"
   },
   "private": true

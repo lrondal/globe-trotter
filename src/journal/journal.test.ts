@@ -314,3 +314,78 @@ test('the Mark of a Region survives reopening the app, and still reaches its Cou
   assert.equal(reopened.status(kansai), 'visited');
   assert.deepEqual(reopened.via(japan), [kansai]);
 });
+
+/** Cities of the built-in list, as the Atlas gives them. */
+const kyoto = { level: 'city', id: '1857910', name: 'Kyōto', lon: 135.75, lat: 35.02, countryId: '392', regionId: 'kansai' } as const;
+
+test('adding the same City of the list twice makes a single Place', () => {
+  const j = journal();
+  j.mark(kyoto, 'wish');
+  j.mark({ ...kyoto }, 'visited');
+  assert.deepEqual(
+    j.cities().map((c) => c.id),
+    [kyoto.id],
+  );
+  assert.equal(j.status(kyoto), 'visited');
+});
+
+test('a City marked Visited makes its Region and its Country Visited, via the City', () => {
+  const j = journal();
+  j.mark(kyoto, 'visited');
+  assert.equal(j.status(kansai), 'visited');
+  assert.equal(j.status(japan), 'visited');
+  assert.deepEqual(j.via(kansai), [{ level: 'city', id: kyoto.id }]);
+  assert.equal(j.counts().visited, 1);
+});
+
+const naha = { level: 'city', id: '1856035', name: 'Naha', lon: 127.68, lat: 26.21, countryId: '392', islandId: 'i-okinawa' } as const;
+
+test('a City on an Island makes the Island Visited, and not its Country', () => {
+  const j = journal();
+  j.mark(naha, 'visited');
+  assert.equal(j.status({ level: 'island', id: 'i-okinawa' }), 'visited');
+  assert.equal(j.status(japan), 'unexplored');
+});
+
+test('undoing the Mark that put a City in the Journal takes it back out', () => {
+  const j = journal();
+  j.mark(kyoto, 'visited');
+  j.undo();
+  assert.deepEqual(j.cities(), []);
+  assert.equal(j.status(japan), 'unexplored');
+});
+
+test('a City stays in the Journal once its Mark is removed, and after reopening the app', () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas });
+  j.mark(kyoto, 'visited');
+  j.mark(kyoto, null);
+  const reopened = openJournal({ db, atlas });
+  assert.deepEqual(reopened.city(kyoto.id), kyoto);
+  assert.equal(reopened.status(kyoto), 'unexplored');
+});
+
+test('a City reaches its Country after reopening the app', () => {
+  const db = memoryDatabase();
+  openJournal({ db, atlas }).mark(kyoto, 'wish');
+  assert.equal(openJournal({ db, atlas }).status(japan), 'wish');
+});
+
+test('a Country lists the Cities inside it, those of its Regions too, by name', () => {
+  const j = journal();
+  const osaka = { ...kyoto, id: '1853909', name: 'Ōsaka' };
+  const sapporo = { ...kyoto, id: '2128295', name: 'Sapporo', regionId: undefined };
+  j.mark(osaka, 'visited');
+  j.mark(sapporo, 'wish');
+  j.mark(kyoto, 'visited');
+  j.mark(naha, 'visited');
+  assert.deepEqual(j.citiesIn(japan).map((c) => c.name), ['Kyōto', 'Ōsaka', 'Sapporo']);
+  assert.deepEqual(j.citiesIn(kansai).map((c) => c.name), ['Kyōto', 'Ōsaka']);
+});
+
+test('writing a Note on a City of the list puts it in the Journal, Unexplored', () => {
+  const j = journal();
+  j.writeNote(kyoto, 'Le Pavillon d’or');
+  assert.deepEqual(j.cities().map((c) => c.id), [kyoto.id]);
+  assert.equal(j.status(japan), 'unexplored');
+});

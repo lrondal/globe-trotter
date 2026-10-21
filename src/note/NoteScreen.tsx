@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '@/components/IconButton';
 import { useShowOnGlobe } from '@/globe/ShowOnGlobeProvider';
-import type { PlaceRef } from '@/journal/journal';
+import type { City, PlaceRef } from '@/journal/journal';
 import { useJournal } from '@/journal/JournalProvider';
 import { formatCoordinates } from '@/sheet/coordinates';
 import { colors, layout, radius, space, text } from '@/theme/tokens';
@@ -17,9 +17,10 @@ import { colors, layout, radius, space, text } from '@/theme/tokens';
 import { TodoList } from './TodoList';
 
 type Props = {
-  place: PlaceRef;
+  /** A City not yet in the Journal is given whole: writing its Note or a Todo puts it there. */
+  place: PlaceRef | City;
   name: string;
-  /** The Country an Island belongs to, shown above its name. */
+  /** The Country an Island, a Region or a City belongs to, shown above its name. */
   country?: string;
   lon: number;
   lat: number;

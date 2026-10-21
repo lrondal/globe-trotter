@@ -1,15 +1,15 @@
 // The Place sheet: a paper sheet over the bottom of the globe, dragged between peek, half and
 // full height. Its height is a shared value the Globe writes too, so a tap on a Country opens
 // it from the UI thread, before React has rendered its content.
-import { Bookmark, BookmarkMinus, Check, NotebookPen, X } from 'lucide-react-native';
+import { Bookmark, BookmarkMinus, Check, ChevronRight, NotebookPen, X } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, ScrollView } from 'react-native-gesture-handler';
 import Animated, { cancelAnimation, useAnimatedStyle, withTiming, type SharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { Button } from '@/components/Button';
-import { StatusBadge } from '@/components/StatusBadge';
+import { STATUS_LABEL, StatusBadge } from '@/components/StatusBadge';
 import type { Mark, Status } from '@/journal/journal';
 import { colors, fonts, layout, radius, shadow, space, text } from '@/theme/tokens';
 
@@ -27,10 +27,12 @@ export type SheetPlace = {
   via: string[];
   /** Whether « Retirer » is offered (see Journal.canRemoveMark). */
   canRemove: boolean;
-  /** « Marquer visitée » for a Region, « Marquer visité » otherwise. */
+  /** « Marquer visitée » for a Region or a City, « Marquer visité » otherwise. */
   feminine?: boolean;
   /** The Place's Note, of which the sheet shows the start; empty when it has none. */
   note: string;
+  /** The Journal's Cities inside it, listed under « Villes ». */
+  cities: { id: string; name: string; status: Status }[];
 };
 
 type Props = {
@@ -44,6 +46,8 @@ type Props = {
   onMark: (mark: Mark | null) => void;
   /** « Ouvrir le carnet »: opens the Note screen of the Place shown. */
   onOpenNote: () => void;
+  /** A City of the list « Villes » tapped. */
+  onOpenCity: (id: string) => void;
 };
 
 /** Lines of the Note the sheet shows before cutting it off. */
@@ -51,11 +55,18 @@ const EXCERPT_LINES = 3;
 /** Places of the provenance named before « … ». */
 const VIA_NAMES = 3;
 
+/** The status dot of a row: an unexplored one is hollow. */
+const DOT: Record<Status, object> = {
+  visited: { backgroundColor: colors.stateVisited },
+  wish: { backgroundColor: colors.stateWish },
+  unexplored: { borderWidth: layout.borderWidth, borderColor: colors.ink3 },
+};
+
 /** « via Kansai, Kanto, … », or nothing for a Status from the Place's own Mark. */
 const formatVia = (names: string[]) =>
   names.length === 0 ? null : `via ${names.slice(0, VIA_NAMES).join(', ')}${names.length > VIA_NAMES ? ', …' : ''}`;
 
-export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpenNote }: Props) {
+export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpenNote, onOpenCity }: Props) {
   // The last Place stays on the sheet while it slides away.
   const [shown, setShown] = useState(place);
   if (place && place !== shown) setShown(place);
@@ -110,7 +121,7 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
         </View>
       </GestureDetector>
       {shown && (
-        <View style={styles.body}>
+        <ScrollView contentContainerStyle={styles.body}>
           <MarkActions status={shown.status} canRemove={shown.canRemove} feminine={shown.feminine} onMark={onMark} />
           {shown.note !== '' && (
             <Text style={styles.excerpt} numberOfLines={EXCERPT_LINES}>
@@ -121,7 +132,32 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
           <Button variant="secondary" icon={NotebookPen} fullWidth onPress={onOpenNote}>
             Ouvrir le carnet
           </Button>
-        </View>
+          {shown.cities.length > 0 && (
+            <View>
+              <Text style={styles.overline}>Villes</Text>
+              {shown.cities.map((city, i) => (
+                <Pressable
+                  key={city.id}
+                  accessibilityRole="button"
+                  onPress={() => onOpenCity(city.id)}
+                  style={({ pressed }) => [
+                    styles.cityRow,
+                    i === shown.cities.length - 1 && styles.lastRow,
+                    pressed && { backgroundColor: colors.paper2 },
+                  ]}>
+                  <View style={styles.cityText}>
+                    <Text style={styles.cityName} numberOfLines={1}>
+                      {city.name}
+                    </Text>
+                    <Text style={styles.cityMeta}>{STATUS_LABEL[city.status]}</Text>
+                  </View>
+                  <View style={[styles.dot, DOT[city.status]]} />
+                  <ChevronRight color={colors.ink4} size={18} strokeWidth={2} />
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </ScrollView>
       )}
     </Animated.View>
   );
@@ -236,6 +272,37 @@ const styles = StyleSheet.create({
   body: {
     gap: 18,
     paddingHorizontal: layout.screenGutter,
+    paddingBottom: space[8],
+  },
+  // The design system's PlaceRow, without a thumbnail until Photos come (#12).
+  cityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[4],
+    minHeight: 56,
+    paddingVertical: space[3],
+    borderBottomWidth: layout.borderWidth,
+    borderBottomColor: colors.borderDefault,
+  },
+  lastRow: {
+    borderBottomWidth: 0,
+  },
+  cityText: {
+    flex: 1,
+    gap: 2,
+  },
+  cityName: {
+    ...text.bodyStrong,
+    color: colors.textPrimary,
+  },
+  cityMeta: {
+    ...text.bodyS,
+    color: colors.textMuted,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   actions: {
     flexDirection: 'row',

@@ -1,0 +1,2 @@
+# Read line by line by the app: checked out exactly as built, whatever core.autocrlf says.
+assets/data/cities.tsv -text
