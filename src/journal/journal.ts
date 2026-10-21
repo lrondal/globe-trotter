@@ -332,6 +332,16 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
       });
       return place;
     },
+    /** Sets the Visit date of a Place marked Visited, YYYY-MM: an earlier trip, say. */
+    setVisitDate(place: PlaceRef, visitDate: string) {
+      const record = recordOf(place);
+      if (record.mark !== 'visited') throw new Error(`${keyOf(place)} is not marked Visited`);
+      // YYYY-MM strings compare in the order of their months.
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(visitDate) || visitDate > monthOf(now())) {
+        throw new Error(`No Visit date ${visitDate}`);
+      }
+      save({ ...record, visitDate });
+    },
     /** Writes a Place's Note; a City given whole enters the Journal with it, if not there yet. */
     writeNote(place: PlaceRef | City, note: string) {
       transaction(db, () => {
@@ -414,6 +424,20 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
       return places.get(keyOf(place)) ?? null;
     },
     status: statusOf,
+    /**
+     * The Visit dates a Place shows, YYYY-MM: its own, from and to alike, or else the earliest
+     * and latest of the Places inside it. Null when none of them has one.
+     */
+    visitDates(place: PlaceRef): { from: string; to: string } | null {
+      const own = recordOf(place).visitDate;
+      if (own) return { from: own, to: own };
+      const key = keyOf(place);
+      const dates = [...places.values()]
+        .filter((p) => p.visitDate !== null && chainOf(p).slice(1).some((up) => keyOf(up) === key))
+        .map((p) => p.visitDate!)
+        .sort();
+      return dates.length > 0 ? { from: dates[0], to: dates[dates.length - 1] } : null;
+    },
     /** Every City in the Journal. */
     cities(): City[] {
       return [...cities.values()];
