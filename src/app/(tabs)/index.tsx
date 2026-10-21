@@ -159,7 +159,7 @@ export default function GlobeScreen() {
       status: journal.status(sheetRef),
       via: journal.via(sheetRef).map((p) => nameOf(journal, p)),
       visitDates: journal.visitDates(sheetRef),
-      visitDate: journal.place(sheetRef)?.visitDate ?? null,
+      ownVisitDate: journal.place(sheetRef)?.visitDate ?? null,
       canRemove: journal.canRemoveMark(sheetRef),
       feminine: sheetRef.level === 'region' || sheetRef.level === 'city',
       note: journal.place(sheetRef)?.note ?? '',

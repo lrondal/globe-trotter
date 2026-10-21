@@ -3,6 +3,7 @@
 // held in memory, loaded when the Journal opens, so the globe can ask for every Country's
 // Status on each change without a query per Country.
 import type { Database } from './database.ts';
+import { monthOf, type VisitDates } from './visitDate.ts';
 
 export type Mark = 'visited' | 'wish';
 export type Status = Mark | 'unexplored';
@@ -152,9 +153,6 @@ const toPlace = (row: Row): Place => ({
   visitDate: row.visit_date,
   note: row.note,
 });
-
-/** The month of `date`, in local time, as YYYY-MM. */
-const monthOf = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
 const keyOf = (place: PlaceRef) => `${place.level}:${place.id}`;
 
@@ -332,11 +330,10 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
       });
       return place;
     },
-    /** Sets the Visit date of a Place marked Visited, YYYY-MM: an earlier trip, say. */
+    /** Sets the Visit date of a Place marked Visited, YYYY-MM: of an earlier visit, say. */
     setVisitDate(place: PlaceRef, visitDate: string) {
       const record = recordOf(place);
       if (record.mark !== 'visited') throw new Error(`${keyOf(place)} is not marked Visited`);
-      // YYYY-MM strings compare in the order of their months.
       if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(visitDate) || visitDate > monthOf(now())) {
         throw new Error(`No Visit date ${visitDate}`);
       }
@@ -428,7 +425,7 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
      * The Visit dates a Place shows, YYYY-MM: its own, from and to alike, or else the earliest
      * and latest of the Places inside it. Null when none of them has one.
      */
-    visitDates(place: PlaceRef): { from: string; to: string } | null {
+    visitDates(place: PlaceRef): VisitDates | null {
       const own = recordOf(place).visitDate;
       if (own) return { from: own, to: own };
       const key = keyOf(place);

@@ -533,3 +533,12 @@ test('a Place with a Visit date of its own shows that date, whatever the Places 
   j.mark(japan, null);
   assert.deepEqual(j.visitDates(japan), { from: '2019-03', to: '2024-04' }, 'the range again, once its own date goes');
 });
+
+test('undoing the removal of a Mark gives back the Visit date as the user set it', () => {
+  const j = journal(new Date(2026, 9, 18));
+  j.mark(france, 'visited');
+  j.setVisitDate(france, '2019-07');
+  j.mark(france, null);
+  j.undo();
+  assert.equal(j.place(france)?.visitDate, '2019-07');
+});

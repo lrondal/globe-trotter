@@ -12,11 +12,12 @@ import { Button } from '@/components/Button';
 import { MonthDialog } from '@/components/MonthDialog';
 import { STATUS_LABEL, StatusBadge } from '@/components/StatusBadge';
 import type { Mark, Status } from '@/journal/journal';
+import { monthOf, type VisitDates } from '@/journal/visitDate';
 import { colors, fonts, layout, radius, shadow, space, text } from '@/theme/tokens';
 
 import { formatCoordinates } from './coordinates';
 import { detentHeight, restingDetent, sheetTiming } from './detents';
-import { formatVisitDates, visitDateOf } from './visitDate';
+import { formatVisitDates } from './visitDate';
 
 export type SheetPlace = {
   name: string;
@@ -28,9 +29,9 @@ export type SheetPlace = {
   /** Names of the Places inside it that its Status comes from, when not from its own Mark. */
   via: string[];
   /** The Visit dates shown in the header, its own or the range of those inside (see Journal.visitDates). */
-  visitDates: { from: string; to: string } | null;
+  visitDates: VisitDates | null;
   /** Its own Visit date, YYYY-MM, which « Changer la date » edits: only a Place marked Visited has one. */
-  visitDate: string | null;
+  ownVisitDate: string | null;
   /** Whether « Retirer » is offered (see Journal.canRemoveMark). */
   canRemove: boolean;
   /** « Marquer visitée » for a Region or a City, « Marquer visité » otherwise. */
@@ -74,12 +75,6 @@ const DOT: Record<Status, object> = {
   visited: { backgroundColor: colors.stateVisited },
   wish: { backgroundColor: colors.stateWish },
   unexplored: { borderWidth: layout.borderWidth, borderColor: colors.ink3 },
-};
-
-/** The current month, YYYY-MM: the latest Visit date there can be. */
-const thisMonth = () => {
-  const today = new Date();
-  return visitDateOf(today.getFullYear(), today.getMonth() + 1);
 };
 
 /** « via Kansai, Kanto, … », or nothing for a Status from the Place's own Mark. */
@@ -163,7 +158,7 @@ export function PlaceSheet({
             canRemove={shown.canRemove}
             feminine={shown.feminine}
             onMark={onMark}
-            onEditDate={shown.visitDate ? () => setPicking(true) : undefined}
+            onEditDate={shown.ownVisitDate ? () => setPicking(true) : undefined}
           />
           {shown.note !== '' && (
             <Text style={styles.excerpt} numberOfLines={EXCERPT_LINES}>
@@ -211,11 +206,11 @@ export function PlaceSheet({
           )}
         </ScrollView>
       )}
-      {shown?.visitDate && (
+      {shown?.ownVisitDate && (
         <MonthDialog
           open={picking}
-          initial={shown.visitDate}
-          latest={thisMonth()}
+          initial={shown.ownVisitDate}
+          latest={monthOf(new Date())}
           onConfirm={(visitDate) => {
             setPicking(false);
             onVisitDate(visitDate);

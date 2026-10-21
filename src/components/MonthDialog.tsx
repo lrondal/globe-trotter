@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { MONTHS, visitDateOf, yearMonthOf } from '@/sheet/visitDate';
+import { MONTHS, visitDateOf, yearMonthOf } from '@/journal/visitDate';
 import { colors, layout, radius, shadow, text } from '@/theme/tokens';
 
 import { Button } from './Button';
@@ -20,8 +20,11 @@ type Props = {
   onCancel: () => void;
 };
 
+/** The earliest year offered: a Visit date is written with four digits. */
+const FIRST_YEAR = 1900;
+
 /** « janv. », « févr. »…: the months as short as French writes them, for the grid. */
-const SHORT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+const SHORT_MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 
 export function MonthDialog({ open, initial, latest, onConfirm, onCancel }: Props) {
   const [picked, setPicked] = useState(() => yearMonthOf(initial));
@@ -50,9 +53,14 @@ export function MonthDialog({ open, initial, latest, onConfirm, onCancel }: Prop
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Année précédente"
+              disabled={picked.year <= FIRST_YEAR}
               onPress={() => stepYear(-1)}
               style={({ pressed }) => [styles.step, pressed && { backgroundColor: colors.paper2 }]}>
-              <ChevronLeft color={colors.textPrimary} size={18} strokeWidth={2} />
+              <ChevronLeft
+                color={picked.year <= FIRST_YEAR ? colors.textDisabled : colors.textPrimary}
+                size={18}
+                strokeWidth={2}
+              />
             </Pressable>
             <Text style={styles.yearText}>{picked.year}</Text>
             <Pressable
@@ -69,7 +77,7 @@ export function MonthDialog({ open, initial, latest, onConfirm, onCancel }: Prop
             </Pressable>
           </View>
           <View style={styles.months}>
-            {SHORT.map((label, i) => {
+            {SHORT_MONTHS.map((label, i) => {
               const month = i + 1;
               const toCome = picked.year === last.year && month > last.month;
               const selected = month === picked.month;
