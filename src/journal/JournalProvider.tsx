@@ -2,10 +2,10 @@
 // its readers after every change.
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 
-import { containerOf, places } from '@/atlas';
+import { containerOf, placeIdsAt, places } from '@/atlas';
 
 import { deviceDatabase } from './deviceDatabase';
-import { openJournal, type City, type Journal, type Mark, type PlaceRef } from './journal';
+import { openJournal, type City, type Journal, type Mark, type PlaceRef, type Point } from './journal';
 
 type JournalState = {
   /** Read-only here: write through the functions below, so the screens re-render. */
@@ -21,12 +21,17 @@ type JournalState = {
   checkTodo(id: number, done: boolean): void;
   moveTodo(id: number, to: number): void;
   deleteTodo(id: number): void;
+  /** Resolves with the Custom City created, or null at sea (see Journal.createCity). */
+  createCity(name: string, point: Point): Promise<City | null>;
+  renameCity(id: string, name: string): void;
+  /** Resolves with whether the Custom City moved: not at sea (see Journal.moveCity). */
+  moveCity(id: string, point: Point): Promise<boolean>;
 };
 
 const JournalContext = createContext<JournalState | null>(null);
 
 export function JournalProvider({ children }: { children: ReactNode }) {
-  const [journal] = useState(() => openJournal({ db: deviceDatabase(), atlas: { places, containerOf } }));
+  const [journal] = useState(() => openJournal({ db: deviceDatabase(), atlas: { places, containerOf, locate: placeIdsAt } }));
   const [version, setVersion] = useState(0);
 
   // A new value after each change, so every reader re-renders.
@@ -38,6 +43,14 @@ export function JournalProvider({ children }: { children: ReactNode }) {
       (...args: Args) => {
         write(...args);
         changed();
+      };
+    /** Likewise for a write that waits on the Atlas, and may make no change. */
+    const writingAfter =
+      <Args extends unknown[], Result>(write: (...args: Args) => Promise<Result>) =>
+      async (...args: Args) => {
+        const result = await write(...args);
+        if (result) changed();
+        return result;
       };
     return {
       journal,
@@ -51,6 +64,9 @@ export function JournalProvider({ children }: { children: ReactNode }) {
       checkTodo: writing(journal.checkTodo),
       moveTodo: writing(journal.moveTodo),
       deleteTodo: writing(journal.deleteTodo),
+      createCity: writingAfter(journal.createCity),
+      renameCity: writing(journal.renameCity),
+      moveCity: writingAfter(journal.moveCity),
     };
   }, [journal, version]);
 

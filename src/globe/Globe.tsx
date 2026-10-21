@@ -8,7 +8,8 @@
 //
 // The selected Country's Regions are handed over by the parent once loaded, and fade in over
 // it while it fades to its tint: the flight never waits for them. The Journal's Cities are
-// ink dots, drawn over everything but the rim.
+// ink dots, drawn over everything but the rim. A long press tells the parent the point of
+// the globe under the finger, where a Custom City goes.
 import { Canvas, Circle, Group, notifyChange, Path, Skia, usePathValue } from '@shopify/react-native-skia';
 import { LocateFixed, Minus, Plus } from 'lucide-react-native';
 import { memo, useEffect, useImperativeHandle, useMemo, useState, type Ref } from 'react';
@@ -59,6 +60,7 @@ import {
   frameFor,
   globeCenterY,
   globeRadius,
+  pointAt,
   projectPoint,
   traceCountries,
   traceGraticule,
@@ -85,6 +87,8 @@ const MEASURE_EVERY = 500;
 const LAYERS = Object.values(LAYER);
 /** After a pinch, the finger left down drags the globe once it has moved this far, in points. */
 const DRAG_AFTER_PINCH = 10;
+/** A press this long, in milliseconds, without moving, is a long press: not a tap. */
+const LONG_PRESS_MS = 450;
 /** The fps toggle, in development, sits below the search pill: points below the status bar. */
 const MEASURE_TOP = 56;
 
@@ -124,6 +128,8 @@ type Props = {
   onSelectRegion: (region: number) => void;
   /** The points of the Journal's Cities. */
   cities: SharedValue<Point[]>;
+  /** The point of the globe under a long press; none off the globe. */
+  onLongPress: (point: Point) => void;
   ref?: Ref<GlobeHandle>;
 };
 
@@ -138,6 +144,7 @@ export const Globe = memo(function Globe({
   regionLayers,
   onSelectRegion,
   cities,
+  onLongPress,
   ref,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -377,6 +384,13 @@ export const Globe = memo(function Globe({
         scheduleOnRN(onSelect, null);
       }
     });
+  const longPress = Gesture.LongPress()
+    .minDuration(LONG_PRESS_MS)
+    .maxDistance(10)
+    .onStart((e) => {
+      const point = pointAt(frame(), e.x, e.y);
+      if (point) scheduleOnRN(onLongPress, point);
+    });
   const pan = Gesture.Pan()
     .minDistance(4)
     .averageTouches(true)
@@ -435,8 +449,9 @@ export const Globe = memo(function Globe({
       turnTo(next);
       zoom.value = next.zoom;
     });
-  // A tap fails as soon as the finger moves enough to turn the globe.
-  const gestures = Gesture.Race(Gesture.Simultaneous(pan, pinchGesture), tap);
+  // A tap or a long press fails as soon as the finger moves enough to turn the globe; a long
+  // press, once the finger has stayed down long enough, cancels the tap.
+  const gestures = Gesture.Race(Gesture.Simultaneous(pan, pinchGesture), longPress, tap);
 
   useFrameCallback((frame) => {
     'worklet';

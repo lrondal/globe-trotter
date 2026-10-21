@@ -1,7 +1,7 @@
 // The Place sheet: a paper sheet over the bottom of the globe, dragged between peek, half and
 // full height. Its height is a shared value the Globe writes too, so a tap on a Country opens
 // it from the UI thread, before React has rendered its content.
-import { Bookmark, BookmarkMinus, Check, ChevronRight, NotebookPen, X } from 'lucide-react-native';
+import { Bookmark, BookmarkMinus, Check, ChevronRight, Move, NotebookPen, PenLine, X } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector, ScrollView } from 'react-native-gesture-handler';
@@ -33,6 +33,8 @@ export type SheetPlace = {
   note: string;
   /** The Journal's Cities inside it, listed under « Villes ». */
   cities: { id: string; name: string; status: Status }[];
+  /** A Custom City, which offers « Renommer » and « Déplacer ». */
+  custom?: boolean;
 };
 
 type Props = {
@@ -48,6 +50,10 @@ type Props = {
   onOpenNote: () => void;
   /** A City of the list « Villes » tapped. */
   onOpenCity: (id: string) => void;
+  /** « Renommer », on a Custom City. */
+  onRename: () => void;
+  /** « Déplacer », on a Custom City. */
+  onMove: () => void;
 };
 
 /** Lines of the Note the sheet shows before cutting it off. */
@@ -66,7 +72,7 @@ const DOT: Record<Status, object> = {
 const formatVia = (names: string[]) =>
   names.length === 0 ? null : `via ${names.slice(0, VIA_NAMES).join(', ')}${names.length > VIA_NAMES ? ', …' : ''}`;
 
-export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpenNote, onOpenCity }: Props) {
+export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpenNote, onOpenCity, onRename, onMove }: Props) {
   // The last Place stays on the sheet while it slides away.
   const [shown, setShown] = useState(place);
   if (place && place !== shown) setShown(place);
@@ -132,6 +138,16 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
           <Button variant="secondary" icon={NotebookPen} fullWidth onPress={onOpenNote}>
             Ouvrir le carnet
           </Button>
+          {shown.custom && (
+            <View style={styles.actions}>
+              <Button variant="secondary" icon={PenLine} onPress={onRename} style={styles.action}>
+                Renommer
+              </Button>
+              <Button variant="secondary" icon={Move} onPress={onMove} style={styles.action}>
+                Déplacer
+              </Button>
+            </View>
+          )}
           {shown.cities.length > 0 && (
             <View>
               <Text style={styles.overline}>Villes</Text>
