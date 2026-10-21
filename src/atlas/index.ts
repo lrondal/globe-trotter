@@ -46,6 +46,12 @@ export const { countries, geometry: countryGeometry } = atlas;
 /** Each entry of `countries` as the Journal knows it: an Island when it has a Country. */
 export const places = countries.map(({ id, countryId }) => ({ level: countryId ? 'island' : 'country', id }) as const);
 
+/** A City of the list by id, as the Journal would keep it; null until the Cities are loaded. */
+export function listedCity(id: string): City | null {
+  const listed = atlas.city(id);
+  return listed ? cityPlace(listed) : null;
+}
+
 /** A City of the list, as the Journal keeps it once it enters it. */
 export function cityPlace({ id, name, lon, lat, countryId, islandId, regionId }: CityRecord): City {
   return { level: 'city', id, name, lon, lat, countryId, ...(islandId && { islandId }), ...(regionId && { regionId }) };

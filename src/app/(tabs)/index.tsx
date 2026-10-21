@@ -4,7 +4,7 @@ import { Linking, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { atlas, cityPlace, containerOf, countries, countryGeometry, footprintOf, places, type Footprint } from '@/atlas';
+import { atlas, cityPlace, containerOf, listedCity, countries, countryGeometry, footprintOf, places, type Footprint } from '@/atlas';
 import { FilterChip } from '@/components/FilterChip';
 import { STATUS_LABEL } from '@/components/StatusBadge';
 import { Toast } from '@/components/Toast';
@@ -159,13 +159,7 @@ export default function GlobeScreen() {
     globe.current?.select(country, cityFootprint(target));
   }, []);
   /** A City by id: the Journal's, or else the list's (loaded by the search that found it). */
-  const findCity = useCallback(
-    (id: string) => {
-      const listed = atlas.city(id);
-      return journal.city(id) ?? (listed ? cityPlace(listed) : null);
-    },
-    [journal],
-  );
+  const findCity = useCallback((id: string) => journal.city(id) ?? listedCity(id), [journal]);
 
   // The location link of a Note, say: fly to its Place and open its sheet.
   const { pending, shown } = useShowOnGlobe();

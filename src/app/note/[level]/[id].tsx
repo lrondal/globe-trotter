@@ -1,6 +1,6 @@
 import { Redirect, useLocalSearchParams } from 'expo-router';
 
-import { atlas, cityPlace, countries, countryGeometry, footprintOf, places } from '@/atlas';
+import { atlas, countries, countryGeometry, footprintOf, listedCity, places } from '@/atlas';
 import { useJournal } from '@/journal/JournalProvider';
 import { NoteScreen } from '@/note/NoteScreen';
 
@@ -12,8 +12,7 @@ export default function NoteRoute() {
 
   if (level === 'city') {
     // Not in the Journal yet: the list, loaded by the search that found it.
-    const listed = atlas.city(id);
-    const city = journal.city(id) ?? (listed && cityPlace(listed));
+    const city = journal.city(id) ?? listedCity(id);
     if (!city) return <Redirect href="/" />;
     return (
       <NoteScreen

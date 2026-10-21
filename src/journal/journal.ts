@@ -236,6 +236,12 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
     places.set(keyOf(place), place);
   };
 
+  /** A Place and the Places it is inside, innermost first: a City, its Region, its Country. */
+  const chainOf = (place: PlaceRef): PlaceRef[] => {
+    const chain = [place];
+    for (let up = containerOf(place); up; up = containerOf(up)) chain.push(up);
+    return chain;
+  };
   /**
    * The Places right inside `place` that hold something, or hold a Place that does: a
    * Country's Region without a record of its own, say, holding a marked City.
@@ -244,9 +250,9 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
     const key = keyOf(place);
     const found = new Map<string, PlaceRef>();
     for (const p of places.values()) {
-      for (let child: PlaceRef = p, up = containerOf(p); up; child = up, up = containerOf(up)) {
-        if (keyOf(up) === key) found.set(keyOf(child), child);
-      }
+      const chain = chainOf(p);
+      const at = chain.findIndex((up) => keyOf(up) === key);
+      if (at > 0) found.set(keyOf(chain[at - 1]), chain[at - 1]);
     }
     return [...found.values()];
   };
@@ -357,11 +363,9 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
     /** The Cities in the Journal inside a Place, by name: a Country's include those of its Regions. */
     citiesIn(place: PlaceRef): City[] {
       const key = keyOf(place);
-      const isInside = (city: PlaceRef) => {
-        for (let up = containerOf(city); up; up = containerOf(up)) if (keyOf(up) === key) return true;
-        return false;
-      };
-      return [...cities.values()].filter(isInside).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+      return [...cities.values()]
+        .filter((city) => chainOf(city).slice(1).some((up) => keyOf(up) === key))
+        .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
     },
     /**
      * Where an inherited Status comes from: the Places inside that have it, in no set
