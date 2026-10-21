@@ -5,7 +5,9 @@ import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanima
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { atlas, cityPlace, containerOf, listedCity, countries, countryGeometry, footprintOf, places, type Footprint } from '@/atlas';
+import { Button } from '@/components/Button';
 import { FilterChip } from '@/components/FilterChip';
+import { NameDialog } from '@/components/NameDialog';
 import { STATUS_LABEL } from '@/components/StatusBadge';
 import { Toast } from '@/components/Toast';
 import type { Point } from '@/globe/camera';
@@ -32,6 +34,16 @@ const turnOnLocation = {
 const noPosition = {
   message: 'Position introuvable. Vérifiez que le service de localisation est activé dans Réglages.',
 };
+const atSea = { message: 'Impossible de placer une ville en mer. Choisissez un point sur la terre.' };
+
+/** What the name dialog is open for: a Custom City to create at a point, or one to rename. */
+type Naming = { point: Point } | { city: City };
+
+/** The name dialog's wording, and the name it opens with. */
+const dialogFor = (naming: Naming | null) =>
+  naming && 'city' in naming
+    ? { title: 'Renommer la ville', initial: naming.city.name, confirm: 'Renommer' }
+    : { title: 'Nouvelle ville', initial: '', confirm: 'Créer' };
 
 const STATUSES: Status[] = ['visited', 'wish', 'unexplored'];
 const ALL_SHOWN: Filters = { visited: true, wish: true, unexplored: true };
@@ -71,7 +83,7 @@ const cityPoints = (journal: Journal) => journal.cities().map(({ lon, lat }) => 
 
 export default function GlobeScreen() {
   const { launch, position, permission, request, locate } = useLocation();
-  const { journal, version, mark, undo } = useJournal();
+  const { journal, version, mark, undo, createCity, renameCity, moveCity } = useJournal();
   const insets = useSafeAreaInsets();
   const globe = useRef<GlobeHandle>(null);
   const sheetHeight = useSharedValue(0);
@@ -88,6 +100,9 @@ export default function GlobeScreen() {
   const [city, setCity] = useState<City | null>(null);
   /** What a search or the list « Villes » has asked the globe to select, until it tells it did. */
   const asked = useRef<{ country: number; region?: string; city?: City } | null>(null);
+  const [naming, setNaming] = useState<Naming | null>(null);
+  /** The Custom City « Déplacer » was pressed on: the next long press moves it there. */
+  const [moving, setMoving] = useState<City | null>(null);
   const [filters, setFilters] = useState(ALL_SHOWN);
   const [notice, setNotice] = useState<Notice | null>(null);
   const noticeKey = useRef(0);
@@ -133,7 +148,8 @@ export default function GlobeScreen() {
 
   const place = useMemo<SheetPlace | null>(() => {
     if (selected === null || !sheetRef) return null;
-    const own = sheetRef.level === 'region' ? atlas.region(sheetRef.id) : city;
+    // The Journal's copy of the City, which a rename changes.
+    const own = sheetRef.level === 'region' ? atlas.region(sheetRef.id) : city && (journal.city(city.id) ?? city);
     const { lon, lat } = own ?? footprintOf(countryGeometry, selected);
     return {
       name: own?.name ?? countries[selected].name,
@@ -148,6 +164,7 @@ export default function GlobeScreen() {
       cities: journal
         .citiesIn(sheetRef)
         .map(({ id, name }) => ({ id, name, status: journal.status({ level: 'city', id }) })),
+      custom: journal.city(sheetRef.id)?.custom === true,
     };
   }, [selected, sheetRef, city, journal, version]);
 
@@ -231,6 +248,44 @@ export default function GlobeScreen() {
     notify({ message: `${place.name} · ${STATUS_LABEL[status]}`, action: 'Annuler', onAction: undo });
   };
 
+  // A long press on land asks for the name of a Custom City there; at sea, nothing happens.
+  // While a Custom City is being moved, it moves it there instead.
+  const longPressed = async (point: Point) => {
+    if (moving) {
+      if (!(await moveCity(moving.id, point))) {
+        notify(atSea);
+        return;
+      }
+      setMoving(null);
+      const moved = journal.city(moving.id);
+      if (moved) selectCity(moved);
+      return;
+    }
+    // Asked before the name, so a long press at sea opens nothing.
+    if (await atlas.locate(point)) setNaming({ point });
+  };
+  const latestLongPress = useRef(longPressed);
+  useEffect(() => {
+    latestLongPress.current = longPressed;
+  });
+  // Stable, like onSelect, so a change in the Journal never re-renders the memoised globe.
+  const onLongPress = useCallback((point: Point) => latestLongPress.current(point), []);
+  const onName = async (name: string) => {
+    if (!naming) return;
+    setNaming(null);
+    if ('city' in naming) {
+      renameCity(naming.city.id, name);
+      return;
+    }
+    const created = await createCity(name, naming.point);
+    if (created) selectCity(created);
+  };
+  const onMove = () => {
+    if (!city) return;
+    setMoving(city);
+    onClose();
+  };
+
   // Stable between renders, so the memoised globe only re-renders when the position moves.
   const recenter = useCallback(async (): Promise<Point | null> => {
     const locateOrExplain = async () => {
@@ -275,6 +330,7 @@ export default function GlobeScreen() {
         regionLayers={regionLayers}
         onSelectRegion={onSelectRegion}
         cities={cities}
+        onLongPress={onLongPress}
       />
       {screenHeight > 0 && (
         <PlaceSheet
@@ -285,6 +341,8 @@ export default function GlobeScreen() {
           onMark={onMark}
           onOpenNote={onOpenNote}
           onOpenCity={onOpenCity}
+          onRename={() => city && setNaming({ city: journal.city(city.id) ?? city })}
+          onMove={onMove}
         />
       )}
       {/* Over the sheet, so that its results show over it too. */}
@@ -293,6 +351,14 @@ export default function GlobeScreen() {
       </View>
       {/* Beside the map buttons; above the sheet, so the toast of a Mark shows over it. */}
       <Animated.View style={[styles.bottomLeft, bottomLeftStyle]} pointerEvents="box-none">
+        {moving && (
+          <View style={styles.moving}>
+            <Text style={styles.hintText}>Appui long là où placer {moving.name}</Text>
+            <Button variant="ghost" size="sm" onPress={() => setMoving(null)}>
+              Annuler
+            </Button>
+          </View>
+        )}
         {notice ? (
           <Toast
             key={notice.key}
@@ -303,7 +369,8 @@ export default function GlobeScreen() {
           />
         ) : (
           journalIsEmpty &&
-          selected === null && (
+          selected === null &&
+          !moving && (
             <View style={styles.hint}>
               <Text style={styles.hintText}>Touchez un pays pour commencer</Text>
             </View>
@@ -323,6 +390,12 @@ export default function GlobeScreen() {
           </View>
         )}
       </Animated.View>
+      <NameDialog
+        open={naming !== null}
+        {...dialogFor(naming)}
+        onConfirm={onName}
+        onCancel={() => setNaming(null)}
+      />
     </View>
   );
 }
@@ -353,6 +426,17 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: 'center',
     paddingHorizontal: 14,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceRaised,
+    boxShadow: shadow[1],
+  },
+  moving: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    minHeight: 44,
+    paddingLeft: 14,
+    paddingRight: 4,
     borderRadius: radius.pill,
     backgroundColor: colors.surfaceRaised,
     boxShadow: shadow[1],

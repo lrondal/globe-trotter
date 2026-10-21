@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 
 import { decodeCountries } from '../atlas/countries.ts';
 import { MAX_ZOOM } from './camera.ts';
-import { DETAIL, discRadius, frameFor, projectPoint, traceCountries, traceGraticule, type PathSink } from './projection.ts';
+import { DETAIL, discRadius, frameFor, pointAt, projectPoint, traceCountries, traceGraticule, type PathSink } from './projection.ts';
 
 // A 402 × 700 pt globe screen: radius 196.98 at zoom 1, centred at (201, 398).
 const viewport = { width: 402, height: 700 };
@@ -32,6 +32,22 @@ test('a point 30° north of the centre is drawn above it', () => {
 
 test('a point on the far side of the globe is hidden', () => {
   assert.equal(projectPoint(frameFor({ lon: 10, lat: 45, zoom: 1 }, viewport), { lon: -170, lat: -45 }).visible, false);
+});
+
+test('the point under the centre of the globe is the one the view is centred on', () => {
+  const at = pointAt(frameFor({ lon: 139.7, lat: 35.7, zoom: 3 }, viewport), 201, 398);
+  assert.ok(at && Math.abs(at.lon - 139.7) < 1e-9 && Math.abs(at.lat - 35.7) < 1e-9, JSON.stringify(at));
+});
+
+test('the point under a screen point is the one drawn there', () => {
+  const frame = frameFor({ lon: -20, lat: 50, zoom: 1.7 }, viewport, 120);
+  const at = pointAt(frame, 260, 230);
+  assert.ok(at);
+  near(projectPoint(frame, at), 260, 230);
+});
+
+test('off the disc of the globe, there is no point', () => {
+  assert.equal(pointAt(frameFor({ lon: 0, lat: 0, zoom: 1 }, viewport), 201, 398 - 200), null);
 });
 
 /** A 5° square Country with its south-west corner at (lon, lat), as one arc in 1e-4 degrees. */

@@ -11,7 +11,8 @@ export type PlaceRef = { level: 'country' | 'island' | 'region' | 'city'; id: st
 
 /**
  * A City as the Journal keeps it: where it is, copied from the built-in list when it enters
- * the Journal, so the Journal never needs the list to know it. A City's id is its GeoNames id.
+ * the Journal, so the Journal never needs the list to know it. A City of the list's id is its
+ * GeoNames id; a Custom City's is generated, and starts with `c-`.
  */
 export type City = {
   level: 'city';
@@ -23,7 +24,15 @@ export type City = {
   /** The Island it is on, if any: then it is in no Region, and its Status reaches the Island only. */
   islandId?: string;
   regionId?: string;
+  /** A Custom City, which the user can rename and move. */
+  custom?: true;
 };
+
+/** A point of the globe, in degrees. */
+export type Point = { lon: number; lat: number };
+
+/** The Places a point is in, by id: what a City keeps of them. */
+export type PlaceIds = { countryId: string; islandId?: string; regionId?: string };
 
 type Options = {
   db: Database;
@@ -32,6 +41,8 @@ type Options = {
     places: readonly PlaceRef[];
     /** The Place a Place is inside, whose Status it reaches: a Region's Country. */
     containerOf(place: PlaceRef): PlaceRef | null;
+    /** The Places at a point: its Country, and the Island or the Region it is in; null at sea. */
+    locate(point: Point): Promise<PlaceIds | null>;
   };
   now?: () => Date;
 };
@@ -79,6 +90,8 @@ const MIGRATIONS = [
     island_id TEXT,
     region_id TEXT
   )`,
+  // A Custom City is a City the user dropped on the globe, rather than one of the list.
+  `ALTER TABLE cities ADD COLUMN custom INTEGER NOT NULL DEFAULT 0`,
 ];
 
 /** Runs `writes` all together or not at all. */
@@ -114,6 +127,7 @@ type CityRow = {
   country_id: string;
   island_id: string | null;
   region_id: string | null;
+  custom: number;
 };
 
 const toCity = (row: CityRow): City => ({
@@ -125,6 +139,7 @@ const toCity = (row: CityRow): City => ({
   countryId: row.country_id,
   ...(row.island_id ? { islandId: row.island_id } : {}),
   ...(row.region_id ? { regionId: row.region_id } : {}),
+  ...(row.custom ? { custom: true } : {}),
 });
 
 /** A Place given with what the Journal keeps of it: a City from the list, entering the Journal. */
@@ -165,7 +180,7 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
   let lastTodoId = Math.max(0, ...[...todos.values()].flat().map((todo) => todo.id));
   const cities = new Map(
     db
-      .all<CityRow>('SELECT id, name, lon, lat, country_id, island_id, region_id FROM cities')
+      .all<CityRow>('SELECT id, name, lon, lat, country_id, island_id, region_id, custom FROM cities')
       .map((row) => [row.id, toCity(row)]),
   );
   /** The Place whose Status a Place reaches: a City's Island, or else its Region, or else its Country. */
@@ -176,23 +191,43 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
     if (city.islandId) return { level: 'island', id: city.islandId };
     return city.regionId ? { level: 'region', id: city.regionId } : { level: 'country', id: city.countryId };
   };
+  /** Records a City in the Journal, or records it anew. */
+  const keep = (city: City) => {
+    const row: CityRow = {
+      id: city.id,
+      name: city.name,
+      lon: city.lon,
+      lat: city.lat,
+      country_id: city.countryId,
+      island_id: city.islandId ?? null,
+      region_id: city.regionId ?? null,
+      custom: city.custom ? 1 : 0,
+    };
+    db.run(
+      'INSERT OR REPLACE INTO cities (id, name, lon, lat, country_id, island_id, region_id, custom) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [row.id, row.name, row.lon, row.lat, row.country_id, row.island_id, row.region_id, row.custom],
+    );
+    cities.set(row.id, toCity(row));
+  };
+  /** The Custom City `id` named `name`, at `point` in the Places `ids`. */
+  const customCityAt = (id: string, name: string, point: Point, ids: PlaceIds): City => ({
+    level: 'city',
+    id,
+    name,
+    ...point,
+    ...ids,
+    custom: true,
+  });
+  /** A Custom City of the Journal: only those can be renamed and moved. */
+  const customCity = (id: string): City => {
+    const city = cities.get(id);
+    if (!city?.custom) throw new Error(`No Custom City ${id}`);
+    return city;
+  };
   /** Puts a City of the list in the Journal, unless it is there already. Returns whether it was not. */
   const enter = (place: PlaceRef | City): boolean => {
     if (!isCity(place) || cities.has(place.id)) return false;
-    const row: CityRow = {
-      id: place.id,
-      name: place.name,
-      lon: place.lon,
-      lat: place.lat,
-      country_id: place.countryId,
-      island_id: place.islandId ?? null,
-      region_id: place.regionId ?? null,
-    };
-    db.run(
-      'INSERT INTO cities (id, name, lon, lat, country_id, island_id, region_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [row.id, row.name, row.lon, row.lat, row.country_id, row.island_id, row.region_id],
-    );
-    cities.set(row.id, toCity(row));
+    keep(place);
     return true;
   };
   /** Takes a City back out of the Journal, with nothing of its own left. */
@@ -303,6 +338,33 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
         enter(place);
         save({ ...recordOf(place), note });
       });
+    },
+    /**
+     * Creates a Custom City named `name` at `point`, in the Places the Atlas finds there.
+     * Returns it, or null at sea, where nothing is created.
+     */
+    async createCity(name: string, point: Point): Promise<City | null> {
+      const located = await atlas.locate(point);
+      if (!located) return null;
+      // Unique without a counter to keep: the time, and a random tail for two in the same millisecond.
+      const id = `c-${now().getTime().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      const city = customCityAt(id, name, point, located);
+      keep(city);
+      return city;
+    },
+    renameCity(id: string, name: string) {
+      keep({ ...customCity(id), name });
+    },
+    /**
+     * Moves a Custom City to `point`, into the Places the Atlas finds there. Returns whether
+     * it moved: at sea, it stays where it was.
+     */
+    async moveCity(id: string, point: Point): Promise<boolean> {
+      const { name } = customCity(id);
+      const located = await atlas.locate(point);
+      if (!located) return false;
+      keep(customCityAt(id, name, point, located));
+      return true;
     },
     /** The Todos of a Place, in the user's order. */
     todos(place: PlaceRef): readonly Todo[] {

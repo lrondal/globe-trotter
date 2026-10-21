@@ -10,7 +10,7 @@ import { openAtlas } from './atlas';
 import type { CountriesData } from './countries';
 import { REGION_FILES } from './regionFiles';
 import type { RegionIndex, RegionsData } from './regions';
-import type { City, PlaceRef } from '../journal/journal';
+import type { City, PlaceIds, PlaceRef, Point } from '../journal/journal';
 import type { CityRecord } from './cities';
 
 export type { CityMatch, SearchResults } from './atlas';
@@ -55,6 +55,13 @@ export function listedCity(id: string): City | null {
 /** A City of the list, as the Journal keeps it once it enters it. */
 export function cityPlace({ id, name, lon, lat, countryId, islandId, regionId }: CityRecord): City {
   return { level: 'city', id, name, lon, lat, countryId, ...(islandId && { islandId }), ...(regionId && { regionId }) };
+}
+
+/** The Places at a point, by id, as a City keeps them; null at sea. */
+export async function placeIdsAt(point: Point): Promise<PlaceIds | null> {
+  const at = await atlas.locate(point);
+  if (!at) return null;
+  return { countryId: at.country.id, ...(at.island && { islandId: at.island.id }), ...(at.region && { regionId: at.region.id }) };
 }
 
 /**

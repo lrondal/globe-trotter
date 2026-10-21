@@ -8,10 +8,22 @@ import { memoryDatabase } from './memoryDatabase.ts';
 /** Regions of Japan, the only Places of the test Atlas inside another. */
 const REGIONS: Record<string, string> = { kansai: '392', kanto: '392' };
 
+/**
+ * The test Atlas's land, by longitude: Japan east of 130° E, Kansai west of 137° E and Kanto
+ * east of it; Okinawa from 126° to 129° E; and France from 0° to 5° E. The sea elsewhere.
+ */
+async function locate({ lon }: { lon: number; lat: number }) {
+  if (lon >= 130) return { countryId: '392', regionId: lon < 137 ? 'kansai' : 'kanto' };
+  if (lon >= 126 && lon < 129) return { countryId: '392', islandId: 'i-okinawa' };
+  if (lon >= 0 && lon < 5) return { countryId: '250' };
+  return null;
+}
+
 const atlas = {
   places: ['250', '392', '620', 'x-kosovo'].map((id) => ({ level: 'country', id }) as const),
   containerOf: (place: PlaceRef): PlaceRef | null =>
     place.level === 'region' ? { level: 'country', id: REGIONS[place.id] } : null,
+  locate,
 };
 const france = { level: 'country', id: '250' } as const;
 
@@ -388,4 +400,78 @@ test('writing a Note on a City of the list puts it in the Journal, Unexplored', 
   j.writeNote(kyoto, 'Le Pavillon d’or');
   assert.deepEqual(j.cities().map((c) => c.id), [kyoto.id]);
   assert.equal(j.status(japan), 'unexplored');
+});
+
+test('a Custom City dropped in the ocean is refused, and nothing is created', async () => {
+  const j = journal();
+  assert.equal(await j.createCity('Point Nemo', { lon: -123.4, lat: -48.9 }), null);
+  assert.deepEqual(j.cities(), []);
+});
+
+test('a Custom City dropped on land is in the Journal, in the Country and Region at its point', async () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas });
+  const city = await j.createCity('Ohara', { lon: 135.83, lat: 35.12 });
+  assert.ok(city);
+  assert.equal(city.custom, true);
+  assert.equal(j.status(city), 'unexplored');
+  const reopened = openJournal({ db, atlas });
+  assert.deepEqual(reopened.city(city.id), city);
+  assert.deepEqual(reopened.citiesIn(kansai).map((c) => c.name), ['Ohara']);
+  reopened.mark(city, 'visited');
+  assert.deepEqual(reopened.via(japan), [kansai]);
+  assert.deepEqual(reopened.via(kansai), [{ level: 'city', id: city.id }]);
+});
+
+test('Custom Cities never share an id, with each other or with a City of the list', async () => {
+  const j = journal();
+  const one = await j.createCity('Ohara', { lon: 135.83, lat: 35.12 });
+  const two = await j.createCity('Ohara', { lon: 135.83, lat: 35.12 });
+  j.mark(kyoto, 'wish');
+  assert.equal(new Set([one?.id, two?.id, kyoto.id]).size, 3);
+  assert.equal(j.cities().length, 3);
+});
+
+test('a renamed Custom City keeps its new name after reopening the app, and its place in the Journal', async () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas });
+  const city = (await j.createCity('Ohara', { lon: 135.83, lat: 35.12 }))!;
+  j.mark(city, 'wish');
+  j.renameCity(city.id, 'Ōhara');
+  const reopened = openJournal({ db, atlas });
+  assert.equal(reopened.city(city.id)?.name, 'Ōhara');
+  assert.equal(reopened.status(city), 'wish');
+});
+
+test('a Custom City moved elsewhere takes its Status to the Country and Region at its new point', async () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas });
+  const city = (await j.createCity('Ohara', { lon: 135.83, lat: 35.12 }))!;
+  j.mark(city, 'visited');
+  assert.equal(await j.moveCity(city.id, { lon: 139.2, lat: 35.6 }), true);
+  assert.equal(j.status(kansai), 'unexplored');
+  assert.equal(j.status(kanto), 'visited');
+  assert.deepEqual(j.citiesIn(kanto).map((c) => c.name), ['Ohara']);
+  assert.deepEqual(openJournal({ db, atlas }).city(city.id), { ...city, lon: 139.2, lat: 35.6, regionId: 'kanto' });
+  await j.moveCity(city.id, { lon: 127.8, lat: 26.3 });
+  assert.equal(j.status({ level: 'island', id: 'i-okinawa' }), 'visited');
+  assert.equal(j.status(japan), 'unexplored', 'on an Island, in no Region of its Country');
+  await j.moveCity(city.id, { lon: 2.35, lat: 48.85 });
+  assert.equal(j.status(france), 'visited');
+  assert.equal(j.city(city.id)?.regionId, undefined);
+});
+
+test('a Custom City moved into the ocean stays where it was', async () => {
+  const j = journal();
+  const city = (await j.createCity('Ohara', { lon: 135.83, lat: 35.12 }))!;
+  assert.equal(await j.moveCity(city.id, { lon: -30, lat: 40 }), false);
+  assert.deepEqual(j.city(city.id), city);
+});
+
+test('a City of the list can be neither renamed nor moved', async () => {
+  const j = journal();
+  j.mark(kyoto, 'visited');
+  assert.throws(() => j.renameCity(kyoto.id, 'Kyoto'));
+  await assert.rejects(j.moveCity(kyoto.id, { lon: 139.2, lat: 35.6 }));
+  assert.deepEqual(j.city(kyoto.id), kyoto);
 });

@@ -90,6 +90,19 @@ export function projectPoint(frame: Frame, point: Point) {
   };
 }
 
+/** The point of the globe drawn at (x, y) on the near side, or null off the globe's disc. */
+export function pointAt(frame: Frame, x: number, y: number): Point | null {
+  'worklet';
+  const u = (x - frame.cx) / frame.s;
+  const v = -(y - frame.cy) / frame.s;
+  if (u * u + v * v > 1) return null;
+  const w = Math.sqrt(1 - u * u - v * v);
+  const px = u * frame.ex + v * frame.nx + w * frame.fx;
+  const py = u * frame.ey + v * frame.ny + w * frame.fy;
+  const pz = u * frame.ez + v * frame.nz + w * frame.fz;
+  return { lon: (Math.atan2(py, px) * 180) / Math.PI, lat: (Math.asin(Math.max(-1, Math.min(1, pz))) * 180) / Math.PI };
+}
+
 /** Distance in points from the globe's centre to the farthest corner of the screen. */
 function farthestCorner(frame: Frame) {
   'worklet';
