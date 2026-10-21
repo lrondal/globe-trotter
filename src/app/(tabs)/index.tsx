@@ -2,8 +2,9 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { atlas, containerOf, countries, countryGeometry, footprintOf, places } from '@/atlas';
+import { atlas, cityPlace, containerOf, listedCity, countries, countryGeometry, footprintOf, places, type Footprint } from '@/atlas';
 import { FilterChip } from '@/components/FilterChip';
 import { STATUS_LABEL } from '@/components/StatusBadge';
 import { Toast } from '@/components/Toast';
@@ -11,10 +12,11 @@ import type { Point } from '@/globe/camera';
 import { Globe, type GlobeHandle, type RegionLayers, type ShownRegions } from '@/globe/Globe';
 import { layerOf, type Filters } from '@/globe/layers';
 import { useShowOnGlobe } from '@/globe/ShowOnGlobeProvider';
-import type { Journal, Mark, PlaceRef, Status } from '@/journal/journal';
+import type { City, Journal, Mark, PlaceRef, Status } from '@/journal/journal';
 import { useJournal } from '@/journal/JournalProvider';
 import { recenterAction } from '@/location/launch';
 import { useLocation } from '@/location/LocationProvider';
+import { SearchBar, type Picked } from '@/search/SearchBar';
 import { detentHeight } from '@/sheet/detents';
 import { PlaceSheet, type SheetPlace } from '@/sheet/PlaceSheet';
 import { colors, layout, radius, shadow, text } from '@/theme/tokens';
@@ -50,19 +52,42 @@ const regionLayersOf = (journal: Journal, filters: Filters, regions: Regions): R
 });
 
 /** The name of a Place, for the provenance of a Status. */
-const nameOf = (place: PlaceRef) =>
-  place.level === 'region' ? (atlas.region(place.id)?.name ?? '') : (countries.find((c) => c.id === place.id)?.name ?? '');
+const nameOf = (journal: Journal, place: PlaceRef) => {
+  if (place.level === 'city') return journal.city(place.id)?.name ?? '';
+  return place.level === 'region' ? (atlas.region(place.id)?.name ?? '') : (countries.find((c) => c.id === place.id)?.name ?? '');
+};
+
+/** Index in the Atlas of a Country or Island, by id. */
+const indexOf = (id: string) => countries.findIndex((c) => c.id === id);
+
+/**
+ * What the globe frames for a City: a square of 0.015 globe radii, about 100 km, a city and
+ * what is around it.
+ */
+const cityFootprint = ({ lon, lat }: City): Footprint => ({ lon, lat, width: 0.015, height: 0.015 });
+
+/** The points of the Journal's Cities, for the globe. */
+const cityPoints = (journal: Journal) => journal.cities().map(({ lon, lat }) => ({ lon, lat }));
 
 export default function GlobeScreen() {
   const { launch, position, permission, request, locate } = useLocation();
   const { journal, version, mark, undo } = useJournal();
+  const insets = useSafeAreaInsets();
   const globe = useRef<GlobeHandle>(null);
   const sheetHeight = useSharedValue(0);
   const [screenHeight, setScreenHeight] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
-  /** The Regions of the selected Country, once loaded, and the one selected among them. */
+  /** The Regions of the selected Country, once loaded. */
   const [regions, setRegions] = useState<Regions | null>(null);
-  const [region, setRegion] = useState<number | null>(null);
+  const shownList = useRef<Regions | null>(null);
+  useEffect(() => {
+    shownList.current = regions;
+  }, [regions]);
+  /** In the selected Country, the Region or the City the sheet shows instead of it. */
+  const [region, setRegion] = useState<string | null>(null);
+  const [city, setCity] = useState<City | null>(null);
+  /** What a search or the list « Villes » has asked the globe to select, until it tells it did. */
+  const asked = useRef<{ country: number; region?: string; city?: City } | null>(null);
   const [filters, setFilters] = useState(ALL_SHOWN);
   const [notice, setNotice] = useState<Notice | null>(null);
   const noticeKey = useRef(0);
@@ -74,8 +99,11 @@ export default function GlobeScreen() {
   useEffect(() => {
     layers.value = layersOf(journal, filters, selected);
   }, [layers, journal, version, filters, selected]);
+  const cities = useSharedValue(useMemo(() => cityPoints(journal), [journal]));
+  useEffect(() => {
+    cities.value = cityPoints(journal);
+  }, [cities, journal, version]);
   const counts = journal.counts();
-
   // The selected Country's Regions, loaded and decoded on the JS thread while the globe flies
   // on the UI thread, then handed to it with their colours.
   const shownRegions = useSharedValue<ShownRegions | null>(null);
@@ -97,15 +125,15 @@ export default function GlobeScreen() {
     regionLayers.value = regions ? regionLayersOf(journal, filters, regions) : null;
   }, [regionLayers, journal, version, filters, regions]);
 
-  /** The Place the sheet shows: the selected Region, or else the selected Country or Island. */
-  const sheetRef = useMemo<PlaceRef | null>(() => {
+  /** The Place the sheet shows: the selected City or Region, or else the selected Country or Island. */
+  const sheetRef = useMemo<PlaceRef | City | null>(() => {
     if (selected === null) return null;
-    return region !== null && regions?.country === selected ? regionRef(regions.list[region].id) : places[selected];
-  }, [selected, region, regions]);
+    return city ?? (region !== null ? regionRef(region) : places[selected]);
+  }, [selected, region, city]);
 
   const place = useMemo<SheetPlace | null>(() => {
     if (selected === null || !sheetRef) return null;
-    const own = sheetRef.level === 'region' ? atlas.region(sheetRef.id) : null;
+    const own = sheetRef.level === 'region' ? atlas.region(sheetRef.id) : city;
     const { lon, lat } = own ?? footprintOf(countryGeometry, selected);
     return {
       name: own?.name ?? countries[selected].name,
@@ -113,33 +141,83 @@ export default function GlobeScreen() {
       lon,
       lat,
       status: journal.status(sheetRef),
-      via: journal.via(sheetRef).map(nameOf),
+      via: journal.via(sheetRef).map((p) => nameOf(journal, p)),
       canRemove: journal.canRemoveMark(sheetRef),
-      feminine: sheetRef.level === 'region',
+      feminine: sheetRef.level === 'region' || sheetRef.level === 'city',
       note: journal.place(sheetRef)?.note ?? '',
+      cities: journal
+        .citiesIn(sheetRef)
+        .map(({ id, name }) => ({ id, name, status: journal.status({ level: 'city', id }) })),
     };
-  }, [selected, sheetRef, journal, version]);
+  }, [selected, sheetRef, city, journal, version]);
+
+  /** Flies to a City, framed with what is around it, and opens its sheet. */
+  const selectCity = useCallback((target: City) => {
+    const country = indexOf(target.islandId ?? target.countryId);
+    if (country < 0) return;
+    asked.current = { country, city: target };
+    globe.current?.select(country, cityFootprint(target));
+  }, []);
+  /** A City by id: the Journal's, or else the list's (loaded by the search that found it). */
+  const findCity = useCallback((id: string) => journal.city(id) ?? listedCity(id), [journal]);
 
   // The location link of a Note, say: fly to its Place and open its sheet.
   const { pending, shown } = useShowOnGlobe();
   useEffect(() => {
     if (!pending) return;
-    // A Region is shown by its Country.
-    const target = pending.level === 'region' ? containerOf(pending) : pending;
-    const index = places.findIndex((p) => p.level === target?.level && p.id === target.id);
-    if (index >= 0) globe.current?.select(index);
+    if (pending.level === 'city') {
+      const target = findCity(pending.id);
+      if (target) selectCity(target);
+    } else {
+      // A Region is shown by its Country.
+      const target = pending.level === 'region' ? containerOf(pending) : pending;
+      const index = places.findIndex((p) => p.level === target?.level && p.id === target.id);
+      if (index >= 0) globe.current?.select(index);
+    }
     shown();
-  }, [pending, shown]);
+  }, [pending, shown, findCity, selectCity]);
+
+  // A result of « Rechercher un lieu »: the globe flies there and selects it.
+  const onPick = (picked: Picked) => {
+    switch (picked.level) {
+      case 'country':
+      case 'island':
+        globe.current?.select(indexOf(picked.place.id));
+        return;
+      case 'region': {
+        const country = indexOf(picked.place.countryId);
+        asked.current = { country, region: picked.place.id };
+        globe.current?.select(country);
+        return;
+      }
+      case 'city':
+        selectCity(journal.city(picked.place.id) ?? cityPlace(picked.place));
+    }
+  };
+  const onOpenCity = (id: string) => {
+    const target = journal.city(id);
+    if (target) selectCity(target);
+  };
 
   const onOpenNote = () => {
     if (!sheetRef) return;
-    router.push({ pathname: '/note/[level]/[id]', params: sheetRef });
+    router.push({ pathname: '/note/[level]/[id]', params: { level: sheetRef.level, id: sheetRef.id } });
   };
 
-  // A Country, an Island or the sea: any Region selected goes.
+  // A Country, an Island or the sea: any Region or City selected goes, unless it was asked for.
   const onSelect = useCallback((country: number | null) => {
+    const wanted = asked.current?.country === country ? asked.current : null;
+    asked.current = null;
     setSelected(country);
-    setRegion(null);
+    setRegion(wanted?.region ?? null);
+    setCity(wanted?.city ?? null);
+  }, []);
+  // Stable, like onSelect: the Regions are read when tapped.
+  const onSelectRegion = useCallback((index: number) => {
+    const list = shownList.current;
+    if (!list) return;
+    setCity(null);
+    setRegion(list.list[index].id);
   }, []);
   const onClose = useCallback(() => {
     globe.current?.deselect();
@@ -195,7 +273,8 @@ export default function GlobeScreen() {
         layers={layers}
         regions={shownRegions}
         regionLayers={regionLayers}
-        onSelectRegion={setRegion}
+        onSelectRegion={onSelectRegion}
+        cities={cities}
       />
       {screenHeight > 0 && (
         <PlaceSheet
@@ -205,8 +284,13 @@ export default function GlobeScreen() {
           onClose={onClose}
           onMark={onMark}
           onOpenNote={onOpenNote}
+          onOpenCity={onOpenCity}
         />
       )}
+      {/* Over the sheet, so that its results show over it too. */}
+      <View style={[styles.search, { top: insets.top + SEARCH_GAP }]} pointerEvents="box-none">
+        <SearchBar onPick={onPick} />
+      </View>
       {/* Beside the map buttons; above the sheet, so the toast of a Mark shows over it. */}
       <Animated.View style={[styles.bottomLeft, bottomLeftStyle]} pointerEvents="box-none">
         {notice ? (
@@ -244,9 +328,16 @@ export default function GlobeScreen() {
 }
 
 const MAP_BUTTON_GAP = 10;
+/** Between the status bar and the search pill, in points. */
+const SEARCH_GAP = 4;
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  search: {
+    position: 'absolute',
+    left: layout.screenGutter,
+    right: layout.screenGutter,
+  },
   bottomLeft: {
     position: 'absolute',
     left: layout.screenGutter,

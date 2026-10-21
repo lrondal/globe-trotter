@@ -13,6 +13,7 @@ const atlas = openAtlas({
   countries: read('data/countries.json'),
   regionIndex: read('data/regions.json'),
   loadRegions: async (countryId) => read(`regions/${countryId}.geo`),
+  loadCities: async () => readFileSync(new URL('../../assets/data/cities.tsv', import.meta.url), 'utf8'),
 });
 
 /** What `locate` finds at a point, by name. */
@@ -57,4 +58,41 @@ test('every Country has Regions, but for those the pipeline lists', () => {
 test('a Region is found by its id, with its Country', () => {
   const kyoto = atlas.regionsOf('392').find((r) => r.name === 'Kyoto Prefecture')!;
   assert.deepEqual(atlas.region(kyoto.id), { ...kyoto, countryId: '392' });
+});
+
+/** The names of the Cities a search finds, in order. */
+const citiesFound = async (query: string) => (await atlas.search(query)).cities.map((c) => c.name);
+
+test('« Lisb » finds Lisbonne first, by its French name', async () => {
+  const [lisbon] = (await atlas.search('Lisb')).cities;
+  assert.equal(lisbon.name, 'Lisbonne');
+  assert.equal(lisbon.countryId, '620');
+});
+
+test('« Par » finds Paris before Parme: Cities rank by population', async () => {
+  const found = await citiesFound('Par');
+  assert.equal(found[0], 'Paris');
+  assert.ok(found.indexOf('Parme') > 0, found.join(', '));
+});
+
+test('a small town is found: Naoshima, by the alias of its main village Honmura', async () => {
+  const [naoshima] = (await atlas.search('naoshima')).cities;
+  assert.equal(naoshima.name, 'Honmura');
+  assert.equal(naoshima.alias, 'Naoshima');
+  assert.equal(naoshima.countryId, '392');
+});
+
+test('accents, case and hyphens aside: « saint etienne » finds Saint-Étienne', async () => {
+  assert.equal((await citiesFound('saint etienne'))[0], 'Saint-Étienne');
+});
+
+test('the search groups Countries, Islands, Regions and Cities', async () => {
+  const found = await atlas.search('cre');
+  assert.deepEqual(found.islands.map((i) => i.name), ['Crète']);
+  assert.deepEqual((await atlas.search('kyoto pre')).regions.map((r) => r.name), ['Kyoto Prefecture']);
+  assert.deepEqual((await atlas.search('jap')).countries.map((c) => c.name), ['Japon']);
+});
+
+test('an empty search finds nothing', async () => {
+  assert.deepEqual(await atlas.search('  '), { countries: [], islands: [], regions: [], cities: [] });
 });

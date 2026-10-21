@@ -7,7 +7,8 @@
 // so the sheet re-rendering never rebuilds its gestures and paths mid-flight.
 //
 // The selected Country's Regions are handed over by the parent once loaded, and fade in over
-// it while it fades to its tint: the flight never waits for them.
+// it while it fades to its tint: the flight never waits for them. The Journal's Cities are
+// ink dots, drawn over everything but the rim.
 import { Canvas, Circle, Group, notifyChange, Path, Skia, usePathValue } from '@shopify/react-native-skia';
 import { LocateFixed, Minus, Plus } from 'lucide-react-native';
 import { memo, useEffect, useImperativeHandle, useMemo, useState, type Ref } from 'react';
@@ -28,7 +29,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 
-import { countryGeometry, footprintOf, type CountryGeometry } from '@/atlas';
+import { countryGeometry, footprintOf, type CountryGeometry, type Footprint } from '@/atlas';
 import { IconButton } from '@/components/IconButton';
 import { detentHeight, sheetTiming } from '@/sheet/detents';
 import { colors, duration, easing, fonts, layout, radius } from '@/theme/tokens';
@@ -75,12 +76,17 @@ const REGION_STROKE = 0.6;
 /** The location dot: a 6 pt sage dot with a thin paper ring, in points. */
 const LOCATION_RADIUS = 3;
 const LOCATION_RING = 1.5;
+/** A City: a 7 pt ink dot with a 1.2 pt paper ring, in points. */
+const CITY_RADIUS = 3.5;
+const CITY_RING = 1.2;
 /** Measures are reported to the panel this often, in milliseconds. */
 const MEASURE_EVERY = 500;
 /** One path per colour layer, in LAYER order. */
 const LAYERS = Object.values(LAYER);
 /** After a pinch, the finger left down drags the globe once it has moved this far, in points. */
 const DRAG_AFTER_PINCH = 10;
+/** The fps toggle, in development, sits below the search pill: points below the status bar. */
+const MEASURE_TOP = 56;
 
 /** The Regions of the Country at index `country` in the Atlas, as the Atlas decoded them. */
 export type ShownRegions = { country: number; geometry: CountryGeometry };
@@ -88,8 +94,11 @@ export type ShownRegions = { country: number; geometry: CountryGeometry };
 export type RegionLayers = { country: number; layers: Layer[] };
 
 export type GlobeHandle = {
-  /** Flies to the Country at this index in the Atlas and opens its sheet, as a tap on it does. */
-  select(country: number): void;
+  /**
+   * Flies to the Country at this index in the Atlas and opens its sheet, as a tap on it does;
+   * framing `footprint` rather than the Country when given, a City of it say.
+   */
+  select(country: number, footprint?: Footprint): void;
   /** Lets go of the selected Country: closes the sheet and lowers the globe back. */
   deselect(): void;
 };
@@ -113,6 +122,8 @@ type Props = {
   regionLayers: SharedValue<RegionLayers | null>;
   /** Index of the Region tapped, in the geometry of `regions`. */
   onSelectRegion: (region: number) => void;
+  /** The points of the Journal's Cities. */
+  cities: SharedValue<Point[]>;
   ref?: Ref<GlobeHandle>;
 };
 
@@ -126,6 +137,7 @@ export const Globe = memo(function Globe({
   regions,
   regionLayers,
   onSelectRegion,
+  cities,
   ref,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -175,11 +187,11 @@ export const Globe = memo(function Globe({
     return frameFor(view(), viewport.value, lift.value);
   };
 
-  const select = (country: number) => {
+  const select = (country: number, footprint?: Footprint) => {
     'worklet';
     const screenHeight = viewport.value.height;
     const half = detentHeight('half', screenHeight);
-    const to = fit(footprintOf(countryGeometry, country), viewport.value, screenHeight - half);
+    const to = fit(footprint ?? footprintOf(countryGeometry, country), viewport.value, screenHeight - half);
     // Another Country's Regions go at once; the same Country's stay.
     if (country !== selectedCountry.value) {
       cancelAnimation(fade);
@@ -236,7 +248,10 @@ export const Globe = memo(function Globe({
   // On the UI thread, so it cannot interleave with a frame of the flight.
   useImperativeHandle(
     ref,
-    () => ({ select: (country) => scheduleOnUI(select, country), deselect: () => scheduleOnUI(deselect) }),
+    () => ({
+      select: (country, footprint) => scheduleOnUI(select, country, footprint),
+      deselect: () => scheduleOnUI(deselect),
+    }),
     [],
   );
 
@@ -318,6 +333,27 @@ export const Globe = memo(function Globe({
   const dotX = useDerivedValue(() => dot.value.x);
   const dotY = useDerivedValue(() => dot.value.y);
   const dotOpacity = useDerivedValue(() => (dot.value.visible ? 1 : 0));
+  // The Cities on the near side, as one path of rings and one of dots, re-traced every frame
+  // like the Countries.
+  const cityBuilders = useSharedValue(useMemo(() => [Skia.PathBuilder.Make(), Skia.PathBuilder.Make()], []));
+  const cityPaths = useSharedValue(useMemo(() => [Skia.Path.Make(), Skia.Path.Make()], []));
+  useDerivedValue(() => {
+    if (viewport.value.width === 0) return;
+    const [rings, dots] = cityBuilders.value;
+    rings.reset();
+    dots.reset();
+    const camera = frameFor({ lon: lon.value, lat: lat.value, zoom: zoom.value }, viewport.value, lift.value);
+    for (const point of cities.value) {
+      const { x, y, visible } = projectPoint(camera, point);
+      if (!visible) continue;
+      rings.addCircle(x, y, CITY_RADIUS + CITY_RING);
+      dots.addCircle(x, y, CITY_RADIUS);
+    }
+    cityPaths.value = [rings.build(), dots.build()];
+    notifyChange(cityPaths);
+  });
+  const cityRings = useDerivedValue(() => cityPaths.value[0]);
+  const cityDots = useDerivedValue(() => cityPaths.value[1]);
 
   const tap = Gesture.Tap()
     .maxDistance(10)
@@ -503,6 +539,8 @@ export const Globe = memo(function Globe({
             <Circle cx={dotX} cy={dotY} r={LOCATION_RADIUS + LOCATION_RING} color={colors.paper0} />
             <Circle cx={dotX} cy={dotY} r={LOCATION_RADIUS} color={colors.globeLocation} />
           </Group>
+          <Path path={cityRings} color={colors.paper0} />
+          <Path path={cityDots} color={colors.globePin} />
           <Circle cx={cx} cy={cy} r={r} style="stroke" strokeWidth={1} color={colors.globeRim} />
         </Canvas>
       </GestureDetector>
@@ -526,7 +564,7 @@ export const Globe = memo(function Globe({
       </Animated.View>
 
       {__DEV__ && (
-        <View style={[styles.measure, { top: insets.top + 8 }]} pointerEvents="box-none">
+        <View style={[styles.measure, { top: insets.top + MEASURE_TOP }]} pointerEvents="box-none">
           {measures ? (
             <MeasurePanel
               measures={measures}

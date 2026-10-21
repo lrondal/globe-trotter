@@ -1,12 +1,30 @@
 import { Redirect, useLocalSearchParams } from 'expo-router';
 
-import { atlas, countries, countryGeometry, footprintOf, places } from '@/atlas';
+import { atlas, countries, countryGeometry, footprintOf, listedCity, places } from '@/atlas';
+import { useJournal } from '@/journal/JournalProvider';
 import { NoteScreen } from '@/note/NoteScreen';
 
-/** The Note of the Country, Island or Region `level`/`id`. */
+/** The Note of the Country, Island, Region or City `level`/`id`. */
 export default function NoteRoute() {
   const { level, id } = useLocalSearchParams<{ level: string; id: string }>();
+  const { journal } = useJournal();
   const countryName = (countryId: string) => countries.find((c) => c.id === countryId && !c.countryId)?.name;
+
+  if (level === 'city') {
+    // Not in the Journal yet: the list, loaded by the search that found it.
+    const city = journal.city(id) ?? listedCity(id);
+    if (!city) return <Redirect href="/" />;
+    return (
+      <NoteScreen
+        key={`${level}:${id}`}
+        place={city}
+        name={city.name}
+        country={countryName(city.countryId)}
+        lon={city.lon}
+        lat={city.lat}
+      />
+    );
+  }
 
   if (level === 'region') {
     const region = atlas.region(id);

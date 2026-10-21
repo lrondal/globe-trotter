@@ -7,7 +7,23 @@ import type { Database } from './database.ts';
 export type Mark = 'visited' | 'wish';
 export type Status = Mark | 'unexplored';
 /** An Island is marked independently of its Country: neither one's Status reaches the other. */
-export type PlaceRef = { level: 'country' | 'island' | 'region'; id: string };
+export type PlaceRef = { level: 'country' | 'island' | 'region' | 'city'; id: string };
+
+/**
+ * A City as the Journal keeps it: where it is, copied from the built-in list when it enters
+ * the Journal, so the Journal never needs the list to know it. A City's id is its GeoNames id.
+ */
+export type City = {
+  level: 'city';
+  id: string;
+  name: string;
+  lon: number;
+  lat: number;
+  countryId: string;
+  /** The Island it is on, if any: then it is in no Region, and its Status reaches the Island only. */
+  islandId?: string;
+  regionId?: string;
+};
 
 type Options = {
   db: Database;
@@ -52,6 +68,17 @@ const MIGRATIONS = [
     done INTEGER NOT NULL DEFAULT 0,
     position INTEGER NOT NULL
   )`,
+  // A City is in the Journal from its first Mark or content until it is Deleted; its Mark
+  // and Note are in places, like any Place's.
+  `CREATE TABLE cities (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    lon REAL NOT NULL,
+    lat REAL NOT NULL,
+    country_id TEXT NOT NULL,
+    island_id TEXT,
+    region_id TEXT
+  )`,
 ];
 
 /** Runs `writes` all together or not at all. */
@@ -78,6 +105,30 @@ function migrate(db: Database) {
 type Row = { id: string; level: PlaceRef['level']; mark: Mark | null; visit_date: string | null; note: string };
 
 type TodoRow = { id: number; level: PlaceRef['level']; place_id: string; text: string; done: number };
+
+type CityRow = {
+  id: string;
+  name: string;
+  lon: number;
+  lat: number;
+  country_id: string;
+  island_id: string | null;
+  region_id: string | null;
+};
+
+const toCity = (row: CityRow): City => ({
+  level: 'city',
+  id: row.id,
+  name: row.name,
+  lon: row.lon,
+  lat: row.lat,
+  countryId: row.country_id,
+  ...(row.island_id ? { islandId: row.island_id } : {}),
+  ...(row.region_id ? { regionId: row.region_id } : {}),
+});
+
+/** A Place given with what the Journal keeps of it: a City from the list, entering the Journal. */
+const isCity = (place: PlaceRef | City): place is City => place.level === 'city' && 'countryId' in place;
 
 const toPlace = (row: Row): Place => ({
   level: row.level,
@@ -112,6 +163,43 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
     todos.set(key, [...(todos.get(key) ?? []), { id: row.id, text: row.text, done: row.done === 1 }]);
   }
   let lastTodoId = Math.max(0, ...[...todos.values()].flat().map((todo) => todo.id));
+  const cities = new Map(
+    db
+      .all<CityRow>('SELECT id, name, lon, lat, country_id, island_id, region_id FROM cities')
+      .map((row) => [row.id, toCity(row)]),
+  );
+  /** The Place whose Status a Place reaches: a City's Island, or else its Region, or else its Country. */
+  const containerOf = (place: PlaceRef): PlaceRef | null => {
+    if (place.level !== 'city') return atlas.containerOf(place);
+    const city = cities.get(place.id);
+    if (!city) return null;
+    if (city.islandId) return { level: 'island', id: city.islandId };
+    return city.regionId ? { level: 'region', id: city.regionId } : { level: 'country', id: city.countryId };
+  };
+  /** Puts a City of the list in the Journal, unless it is there already. Returns whether it was not. */
+  const enter = (place: PlaceRef | City): boolean => {
+    if (!isCity(place) || cities.has(place.id)) return false;
+    const row: CityRow = {
+      id: place.id,
+      name: place.name,
+      lon: place.lon,
+      lat: place.lat,
+      country_id: place.countryId,
+      island_id: place.islandId ?? null,
+      region_id: place.regionId ?? null,
+    };
+    db.run(
+      'INSERT INTO cities (id, name, lon, lat, country_id, island_id, region_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [row.id, row.name, row.lon, row.lat, row.country_id, row.island_id, row.region_id],
+    );
+    cities.set(row.id, toCity(row));
+    return true;
+  };
+  /** Takes a City back out of the Journal, with nothing of its own left. */
+  const leave = (place: PlaceRef) => {
+    db.run('DELETE FROM cities WHERE id = ?', [place.id]);
+    cities.delete(place.id);
+  };
   /** The list holding the Todo `id`, under its Place's key, and the Todo's index in it. */
   const findTodo = (id: number) => {
     for (const [key, list] of todos) {
@@ -148,13 +236,25 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
     places.set(keyOf(place), place);
   };
 
-  /** The Places inside `place` that the Journal holds something about. */
+  /** A Place and the Places it is inside, innermost first: a City, its Region, its Country. */
+  const chainOf = (place: PlaceRef): PlaceRef[] => {
+    const chain = [place];
+    for (let up = containerOf(place); up; up = containerOf(up)) chain.push(up);
+    return chain;
+  };
+  /**
+   * The Places right inside `place` that hold something, or hold a Place that does: a
+   * Country's Region without a record of its own, say, holding a marked City.
+   */
   const inside = (place: PlaceRef): PlaceRef[] => {
     const key = keyOf(place);
-    return [...places.values()].filter((p) => {
-      const container = atlas.containerOf(p);
-      return container !== null && keyOf(container) === key;
-    });
+    const found = new Map<string, PlaceRef>();
+    for (const p of places.values()) {
+      const chain = chainOf(p);
+      const at = chain.findIndex((up) => keyOf(up) === key);
+      if (at > 0) found.set(keyOf(chain[at - 1]), chain[at - 1]);
+    }
+    return [...found.values()];
   };
   /** The highest of a Place's own Mark and the Statuses of the Places inside it. */
   const statusOf = (place: PlaceRef): Status => {
@@ -166,38 +266,54 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
     return status;
   };
 
-  /** The last change of Mark: the Place, and its Mark and Visit date before the change. */
-  let undoable: { place: PlaceRef; mark: Mark | null; visitDate: string | null } | null = null;
+  /**
+   * The last change of Mark: the Place, its Mark and Visit date before the change, and
+   * whether the change put it in the Journal, a City of the list.
+   */
+  let undoable: { place: PlaceRef; mark: Mark | null; visitDate: string | null; entered: boolean } | null = null;
 
   return {
-    mark(place: PlaceRef, mark: Mark | null) {
+    /** Sets a Place's Mark; a City given whole enters the Journal with it, if not there yet. */
+    mark(place: PlaceRef | City, mark: Mark | null) {
       const before = recordOf(place);
       // The Visit date belongs to the visit: marking Visited dates it, leaving Visited drops it.
       const visitDate = mark === 'visited' ? (before.visitDate ?? monthOf(now())) : null;
-      save({ ...before, mark, visitDate });
-      undoable = { place: { level: place.level, id: place.id }, mark: before.mark, visitDate: before.visitDate };
+      let entered = false;
+      transaction(db, () => {
+        entered = enter(place);
+        save({ ...before, mark, visitDate });
+      });
+      undoable = { place: { level: place.level, id: place.id }, mark: before.mark, visitDate: before.visitDate, entered };
     },
     /** Takes back the last change of Mark. Returns its Place, or null when there is none. */
     undo(): PlaceRef | null {
       if (!undoable) return null;
-      const { place, mark, visitDate } = undoable;
+      const { place, mark, visitDate, entered } = undoable;
       undoable = null;
-      // Only the Mark goes back: content written since stays.
-      save({ ...recordOf(place), mark, visitDate });
+      transaction(db, () => {
+        // Only the Mark goes back: content written since stays, and keeps a City it entered.
+        save({ ...recordOf(place), mark, visitDate });
+        if (entered && !places.has(keyOf(place))) leave(place);
+      });
       return place;
     },
-    writeNote(place: PlaceRef, note: string) {
-      save({ ...recordOf(place), note });
+    /** Writes a Place's Note; a City given whole enters the Journal with it, if not there yet. */
+    writeNote(place: PlaceRef | City, note: string) {
+      transaction(db, () => {
+        enter(place);
+        save({ ...recordOf(place), note });
+      });
     },
     /** The Todos of a Place, in the user's order. */
     todos(place: PlaceRef): readonly Todo[] {
       return todos.get(keyOf(place)) ?? [];
     },
     /** Adds an unchecked Todo at the end of the Place's list. */
-    addTodo(place: PlaceRef, text: string): Todo {
+    addTodo(place: PlaceRef | City, text: string): Todo {
       const list = todos.get(keyOf(place)) ?? [];
       const todo = { id: ++lastTodoId, text, done: false };
       transaction(db, () => {
+        enter(place);
         db.run('INSERT INTO todos (id, level, place_id, text, done, position) VALUES (?, ?, ?, ?, 0, ?)', [
           todo.id,
           place.level,
@@ -236,6 +352,21 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
       return places.get(keyOf(place)) ?? null;
     },
     status: statusOf,
+    /** Every City in the Journal. */
+    cities(): City[] {
+      return [...cities.values()];
+    },
+    /** A City in the Journal, or null when it is not there. */
+    city(id: string): City | null {
+      return cities.get(id) ?? null;
+    },
+    /** The Cities in the Journal inside a Place, by name: a Country's include those of its Regions. */
+    citiesIn(place: PlaceRef): City[] {
+      const key = keyOf(place);
+      return [...cities.values()]
+        .filter((city) => chainOf(city).slice(1).some((up) => keyOf(up) === key))
+        .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    },
     /**
      * Where an inherited Status comes from: the Places inside that have it, in no set
      * order. Empty when the Place's own Mark makes its Status.
