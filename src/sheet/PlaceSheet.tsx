@@ -1,10 +1,24 @@
 // The Place sheet: a paper sheet over the bottom of the globe, dragged between peek, half and
 // full height. Its height is a shared value the Globe writes too, so a tap on a Country opens
 // it from the UI thread, before React has rendered its content.
-import { Bookmark, BookmarkMinus, CalendarDays, Check, ChevronRight, Move, NotebookPen, PenLine, X } from 'lucide-react-native';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Gesture, GestureDetector, ScrollView } from 'react-native-gesture-handler';
+import {
+  Bookmark,
+  BookmarkMinus,
+  CalendarDays,
+  Check,
+  ChevronRight,
+  Move,
+  NotebookPen,
+  PenLine,
+  X,
+} from "lucide-react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Gesture,
+  GestureDetector,
+  ScrollView,
+} from "react-native-gesture-handler";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -12,19 +26,30 @@ import Animated, {
   useSharedValue,
   withTiming,
   type SharedValue,
-} from 'react-native-reanimated';
-import { scheduleOnRN } from 'react-native-worklets';
+} from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 
-import { Button } from '@/components/Button';
-import { MonthDialog } from '@/components/MonthDialog';
-import { STATUS_LABEL, StatusBadge } from '@/components/StatusBadge';
-import type { Mark, Status } from '@/journal/journal';
-import { colors, duration, easing, fonts, layout, radius, shadow, space, text } from '@/theme/tokens';
+import { Button } from "@/components/Button";
+import { MonthDialog } from "@/components/MonthDialog";
+import { STATUS_LABEL, StatusBadge } from "@/components/StatusBadge";
+import type { Mark, Status } from "@/journal/journal";
+import { monthOf, type VisitDates } from "@/journal/visitDate";
+import {
+  colors,
+  duration,
+  easing,
+  fonts,
+  layout,
+  radius,
+  shadow,
+  space,
+  text,
+} from "@/theme/tokens";
 
-import { formatCoordinates } from './coordinates';
-import { sheetChange, type SheetIdentity } from './crossfade';
-import { detentHeight, restingDetent, sheetTiming } from './detents';
-import { formatVisitDates, visitDateOf } from './visitDate';
+import { formatCoordinates } from "./coordinates";
+import { sheetChange, type SheetIdentity } from "./crossfade";
+import { detentHeight, restingDetent, sheetTiming } from "./detents";
+import { formatVisitDates } from "./visitDate";
 
 export type SheetPlace = SheetIdentity & {
   name: string;
@@ -36,9 +61,9 @@ export type SheetPlace = SheetIdentity & {
   /** Names of the Places inside it that its Status comes from, when not from its own Mark. */
   via: string[];
   /** The Visit dates shown in the header, its own or the range of those inside (see Journal.visitDates). */
-  visitDates: { from: string; to: string } | null;
+  visitDates: VisitDates | null;
   /** Its own Visit date, YYYY-MM, which « Changer la date » edits: only a Place marked Visited has one. */
-  visitDate: string | null;
+  ownVisitDate: string | null;
   /** Whether « Retirer » is offered (see Journal.canRemoveMark). */
   canRemove: boolean;
   /** « Marquer visitée » for a Region or a City, « Marquer visité » otherwise. */
@@ -89,15 +114,11 @@ const DOT: Record<Status, object> = {
   unexplored: { borderWidth: layout.borderWidth, borderColor: colors.ink3 },
 };
 
-/** The current month, YYYY-MM: the latest Visit date there can be. */
-const thisMonth = () => {
-  const today = new Date();
-  return visitDateOf(today.getFullYear(), today.getMonth() + 1);
-};
-
 /** « via Kansai, Kanto, … », or nothing for a Status from the Place's own Mark. */
 const formatVia = (names: string[]) =>
-  names.length === 0 ? null : `via ${names.slice(0, VIA_NAMES).join(', ')}${names.length > VIA_NAMES ? ', …' : ''}`;
+  names.length === 0
+    ? null
+    : `via ${names.slice(0, VIA_NAMES).join(", ")}${names.length > VIA_NAMES ? ", …" : ""}`;
 
 export function PlaceSheet({
   height,
@@ -120,10 +141,10 @@ export function PlaceSheet({
     setPrevious(place);
     const change = sheetChange(previous, place);
     // Fading out, the next Place waits for the content to be gone, whatever it is.
-    if (change === 'swap' || (change === 'update' && !fading)) {
+    if (change === "swap" || (change === "update" && !fading)) {
       setShown(place);
       setFading(false);
-    } else if (change === 'fade') setFading(true);
+    } else if (change === "fade") setFading(true);
   }
   const latest = useRef(place);
   useEffect(() => {
@@ -137,13 +158,18 @@ export function PlaceSheet({
   }, []);
   const opacity = useSharedValue(1);
   useEffect(() => {
-    if (fading) opacity.value = withTiming(0, fadeOut, (done) => done && scheduleOnRN(reveal));
+    if (fading)
+      opacity.value = withTiming(
+        0,
+        fadeOut,
+        (done) => done && scheduleOnRN(reveal),
+      );
     else opacity.value = withTiming(1, fadeIn);
   }, [fading, shown, opacity, reveal]);
   const fade = useAnimatedStyle(() => ({ opacity: opacity.value }));
   const [picking, setPicking] = useState(false);
 
-  const full = detentHeight('full', screenHeight);
+  const full = detentHeight("full", screenHeight);
   const drag = Gesture.Pan()
     .onBegin(() => {
       cancelAnimation(height);
@@ -153,13 +179,19 @@ export function PlaceSheet({
     })
     .onEnd((e) => {
       const detent = restingDetent(height.value, -e.velocityY, screenHeight);
-      if (detent) height.value = withTiming(detentHeight(detent, screenHeight), sheetTiming);
+      if (detent)
+        height.value = withTiming(
+          detentHeight(detent, screenHeight),
+          sheetTiming,
+        );
       else scheduleOnRN(onClose);
     });
 
   const slide = useAnimatedStyle(() => ({
     // Closed, it also hides its shadow below the screen.
-    transform: [{ translateY: full - height.value + (height.value <= 0 ? 48 : 0) }],
+    transform: [
+      { translateY: full - height.value + (height.value <= 0 ? 48 : 0) },
+    ],
   }));
 
   return (
@@ -170,17 +202,24 @@ export function PlaceSheet({
           {shown && (
             <View style={styles.header}>
               <Animated.View style={[styles.titles, fade]}>
-                {shown.overline && <Text style={styles.overline}>{shown.overline}</Text>}
+                {shown.overline && (
+                  <Text style={styles.overline}>{shown.overline}</Text>
+                )}
                 <Text style={styles.title} numberOfLines={2}>
                   {shown.name}
                 </Text>
                 <View style={styles.status}>
                   <StatusBadge status={shown.status} />
-                  {formatVia(shown.via) && <Text style={styles.via}>{formatVia(shown.via)}</Text>}
+                  {formatVia(shown.via) && (
+                    <Text style={styles.via}>{formatVia(shown.via)}</Text>
+                  )}
                   <Text style={styles.meta}>
-                    {[shown.visitDates && formatVisitDates(shown.visitDates), formatCoordinates(shown.lon, shown.lat)]
+                    {[
+                      shown.visitDates && formatVisitDates(shown.visitDates),
+                      formatCoordinates(shown.lon, shown.lat),
+                    ]
                       .filter(Boolean)
-                      .join(' · ')}
+                      .join(" · ")}
                   </Text>
                 </View>
               </Animated.View>
@@ -189,7 +228,11 @@ export function PlaceSheet({
                 accessibilityLabel="Fermer"
                 onPress={onClose}
                 hitSlop={4}
-                style={({ pressed }) => [styles.close, pressed && { backgroundColor: colors.paper2 }]}>
+                style={({ pressed }) => [
+                  styles.close,
+                  pressed && { backgroundColor: colors.paper2 },
+                ]}
+              >
                 <X color={colors.textPrimary} size={18} strokeWidth={2} />
               </Pressable>
             </View>
@@ -198,30 +241,50 @@ export function PlaceSheet({
       </GestureDetector>
       {shown && (
         // Fading out, its buttons would act on the next Place already.
-        <Animated.View style={[styles.content, fade]} pointerEvents={fading ? 'none' : 'auto'}>
+        <Animated.View
+          style={[styles.content, fade]}
+          pointerEvents={fading ? "none" : "auto"}
+        >
           <ScrollView contentContainerStyle={styles.body}>
             <MarkActions
               status={shown.status}
               canRemove={shown.canRemove}
               feminine={shown.feminine}
               onMark={onMark}
-              onEditDate={shown.visitDate ? () => setPicking(true) : undefined}
+              onEditDate={
+                shown.ownVisitDate ? () => setPicking(true) : undefined
+              }
             />
-            {shown.note !== '' && (
+            {shown.note !== "" && (
               <Text style={styles.excerpt} numberOfLines={EXCERPT_LINES}>
                 « {shown.note.trim()} »
               </Text>
             )}
             {/* For every Status: a Note or Todos can be written before marking the Place. */}
-            <Button variant="secondary" icon={NotebookPen} fullWidth onPress={onOpenNote}>
+            <Button
+              variant="secondary"
+              icon={NotebookPen}
+              fullWidth
+              onPress={onOpenNote}
+            >
               Ouvrir le carnet
             </Button>
             {shown.custom && (
               <View style={styles.actions}>
-                <Button variant="secondary" icon={PenLine} onPress={onRename} style={styles.action}>
+                <Button
+                  variant="secondary"
+                  icon={PenLine}
+                  onPress={onRename}
+                  style={styles.action}
+                >
                   Renommer
                 </Button>
-                <Button variant="secondary" icon={Move} onPress={onMove} style={styles.action}>
+                <Button
+                  variant="secondary"
+                  icon={Move}
+                  onPress={onMove}
+                  style={styles.action}
+                >
                   Déplacer
                 </Button>
               </View>
@@ -238,15 +301,22 @@ export function PlaceSheet({
                       styles.cityRow,
                       i === shown.cities.length - 1 && styles.lastRow,
                       pressed && { backgroundColor: colors.paper2 },
-                    ]}>
+                    ]}
+                  >
                     <View style={styles.cityText}>
                       <Text style={styles.cityName} numberOfLines={1}>
                         {city.name}
                       </Text>
-                      <Text style={styles.cityMeta}>{STATUS_LABEL[city.status]}</Text>
+                      <Text style={styles.cityMeta}>
+                        {STATUS_LABEL[city.status]}
+                      </Text>
                     </View>
                     <View style={[styles.dot, DOT[city.status]]} />
-                    <ChevronRight color={colors.ink4} size={18} strokeWidth={2} />
+                    <ChevronRight
+                      color={colors.ink4}
+                      size={18}
+                      strokeWidth={2}
+                    />
                   </Pressable>
                 ))}
               </View>
@@ -254,11 +324,11 @@ export function PlaceSheet({
           </ScrollView>
         </Animated.View>
       )}
-      {shown?.visitDate && (
+      {shown?.ownVisitDate && (
         <MonthDialog
           open={picking}
-          initial={shown.visitDate}
-          latest={thisMonth()}
+          initial={shown.ownVisitDate}
+          latest={monthOf(new Date())}
           onConfirm={(visitDate) => {
             setPicking(false);
             onVisitDate(visitDate);
@@ -289,16 +359,26 @@ function MarkActions({
   /** « Changer la date », on a Place marked Visited. */
   onEditDate?: () => void;
 }) {
-  if (status === 'visited') {
+  if (status === "visited") {
     if (!canRemove) return null;
     return (
       <View style={styles.actions}>
         {onEditDate && (
-          <Button variant="secondary" icon={CalendarDays} onPress={onEditDate} style={styles.action}>
+          <Button
+            variant="secondary"
+            icon={CalendarDays}
+            onPress={onEditDate}
+            style={styles.action}
+          >
             Changer la date
           </Button>
         )}
-        <Button variant="secondary" icon={X} onPress={() => onMark(null)} style={styles.action}>
+        <Button
+          variant="secondary"
+          icon={X}
+          onPress={() => onMark(null)}
+          style={styles.action}
+        >
           Retirer
         </Button>
       </View>
@@ -306,17 +386,32 @@ function MarkActions({
   }
   return (
     <View style={styles.actions}>
-      <Button variant="accent" icon={Check} onPress={() => onMark('visited')} style={styles.action}>
-        {feminine ? 'Marquer visitée' : 'Marquer visité'}
+      <Button
+        variant="accent"
+        icon={Check}
+        onPress={() => onMark("visited")}
+        style={styles.action}
+      >
+        {feminine ? "Marquer visitée" : "Marquer visité"}
       </Button>
-      {status === 'wish' ? (
+      {status === "wish" ? (
         canRemove && (
-          <Button variant="secondary" icon={BookmarkMinus} onPress={() => onMark(null)} style={styles.action}>
+          <Button
+            variant="secondary"
+            icon={BookmarkMinus}
+            onPress={() => onMark(null)}
+            style={styles.action}
+          >
             Retirer
           </Button>
         )
       ) : (
-        <Button variant="secondary" icon={Bookmark} onPress={() => onMark('wish')} style={styles.action}>
+        <Button
+          variant="secondary"
+          icon={Bookmark}
+          onPress={() => onMark("wish")}
+          style={styles.action}
+        >
           À visiter
         </Button>
       )}
@@ -326,7 +421,7 @@ function MarkActions({
 
 const styles = StyleSheet.create({
   sheet: {
-    position: 'absolute',
+    position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
@@ -339,7 +434,7 @@ const styles = StyleSheet.create({
     paddingBottom: space[4],
   },
   handle: {
-    alignSelf: 'center',
+    alignSelf: "center",
     width: 36,
     height: 4,
     borderRadius: 2,
@@ -348,8 +443,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.paper4,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: space[4],
     paddingHorizontal: layout.screenGutter,
     paddingTop: space[2],
@@ -362,7 +457,7 @@ const styles = StyleSheet.create({
   overline: {
     ...text.overline,
     color: colors.textMuted,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     letterSpacing: 11 * 0.08,
   },
   title: {
@@ -371,9 +466,9 @@ const styles = StyleSheet.create({
     letterSpacing: 34 * -0.01,
   },
   status: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
     gap: 10,
   },
   via: {
@@ -383,7 +478,7 @@ const styles = StyleSheet.create({
   meta: {
     ...text.caption,
     color: colors.textMuted,
-    fontVariant: ['tabular-nums'],
+    fontVariant: ["tabular-nums"],
   },
   content: {
     flex: 1,
@@ -395,8 +490,8 @@ const styles = StyleSheet.create({
   },
   // The design system's PlaceRow, without a thumbnail until Photos come (#12).
   cityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: space[4],
     minHeight: 56,
     paddingVertical: space[3],
@@ -424,7 +519,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   actions: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 10,
   },
   // Instrument Serif italic 20/1.3, inside « ».
@@ -441,8 +536,8 @@ const styles = StyleSheet.create({
   close: {
     width: 36,
     height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: colors.surfaceRaised,
     borderRadius: radius.md,
     borderWidth: layout.borderWidth,
