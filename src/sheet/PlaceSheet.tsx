@@ -1,7 +1,7 @@
 // The Place sheet: a paper sheet over the bottom of the globe, dragged between peek, half and
 // full height. Its height is a shared value the Globe writes too, so a tap on a Country opens
 // it from the UI thread, before React has rendered its content.
-import { Bookmark, BookmarkMinus, Check, ChevronRight, Move, NotebookPen, PenLine, X } from 'lucide-react-native';
+import { Bookmark, BookmarkMinus, CalendarDays, Check, ChevronRight, Move, NotebookPen, PenLine, X } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector, ScrollView } from 'react-native-gesture-handler';
@@ -9,12 +9,14 @@ import Animated, { cancelAnimation, useAnimatedStyle, withTiming, type SharedVal
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { Button } from '@/components/Button';
+import { MonthDialog } from '@/components/MonthDialog';
 import { STATUS_LABEL, StatusBadge } from '@/components/StatusBadge';
 import type { Mark, Status } from '@/journal/journal';
 import { colors, fonts, layout, radius, shadow, space, text } from '@/theme/tokens';
 
 import { formatCoordinates } from './coordinates';
 import { detentHeight, restingDetent, sheetTiming } from './detents';
+import { formatVisitDates, visitDateOf } from './visitDate';
 
 export type SheetPlace = {
   name: string;
@@ -25,6 +27,10 @@ export type SheetPlace = {
   status: Status;
   /** Names of the Places inside it that its Status comes from, when not from its own Mark. */
   via: string[];
+  /** The Visit dates shown in the header, its own or the range of those inside (see Journal.visitDates). */
+  visitDates: { from: string; to: string } | null;
+  /** Its own Visit date, YYYY-MM, which « Changer la date » edits: only a Place marked Visited has one. */
+  visitDate: string | null;
   /** Whether « Retirer » is offered (see Journal.canRemoveMark). */
   canRemove: boolean;
   /** « Marquer visitée » for a Region or a City, « Marquer visité » otherwise. */
@@ -46,6 +52,8 @@ type Props = {
   onClose: () => void;
   /** Sets the Mark of the Place shown; null is Retirer. */
   onMark: (mark: Mark | null) => void;
+  /** A Visit date picked for the Place shown, YYYY-MM. */
+  onVisitDate: (visitDate: string) => void;
   /** « Ouvrir le carnet »: opens the Note screen of the Place shown. */
   onOpenNote: () => void;
   /** A City of the list « Villes » tapped. */
@@ -68,14 +76,32 @@ const DOT: Record<Status, object> = {
   unexplored: { borderWidth: layout.borderWidth, borderColor: colors.ink3 },
 };
 
+/** The current month, YYYY-MM: the latest Visit date there can be. */
+const thisMonth = () => {
+  const today = new Date();
+  return visitDateOf(today.getFullYear(), today.getMonth() + 1);
+};
+
 /** « via Kansai, Kanto, … », or nothing for a Status from the Place's own Mark. */
 const formatVia = (names: string[]) =>
   names.length === 0 ? null : `via ${names.slice(0, VIA_NAMES).join(', ')}${names.length > VIA_NAMES ? ', …' : ''}`;
 
-export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpenNote, onOpenCity, onRename, onMove }: Props) {
+export function PlaceSheet({
+  height,
+  screenHeight,
+  place,
+  onClose,
+  onMark,
+  onVisitDate,
+  onOpenNote,
+  onOpenCity,
+  onRename,
+  onMove,
+}: Props) {
   // The last Place stays on the sheet while it slides away.
   const [shown, setShown] = useState(place);
   if (place && place !== shown) setShown(place);
+  const [picking, setPicking] = useState(false);
 
   const full = detentHeight('full', screenHeight);
   const drag = Gesture.Pan()
@@ -111,7 +137,11 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
                 <View style={styles.status}>
                   <StatusBadge status={shown.status} />
                   {formatVia(shown.via) && <Text style={styles.via}>{formatVia(shown.via)}</Text>}
-                  <Text style={styles.meta}>{formatCoordinates(shown.lon, shown.lat)}</Text>
+                  <Text style={styles.meta}>
+                    {[shown.visitDates && formatVisitDates(shown.visitDates), formatCoordinates(shown.lon, shown.lat)]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
                 </View>
               </View>
               <Pressable
@@ -128,7 +158,13 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
       </GestureDetector>
       {shown && (
         <ScrollView contentContainerStyle={styles.body}>
-          <MarkActions status={shown.status} canRemove={shown.canRemove} feminine={shown.feminine} onMark={onMark} />
+          <MarkActions
+            status={shown.status}
+            canRemove={shown.canRemove}
+            feminine={shown.feminine}
+            onMark={onMark}
+            onEditDate={shown.visitDate ? () => setPicking(true) : undefined}
+          />
           {shown.note !== '' && (
             <Text style={styles.excerpt} numberOfLines={EXCERPT_LINES}>
               « {shown.note.trim()} »
@@ -175,29 +211,50 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
           )}
         </ScrollView>
       )}
+      {shown?.visitDate && (
+        <MonthDialog
+          open={picking}
+          initial={shown.visitDate}
+          latest={thisMonth()}
+          onConfirm={(visitDate) => {
+            setPicking(false);
+            onVisitDate(visitDate);
+          }}
+          onCancel={() => setPicking(false)}
+        />
+      )}
     </Animated.View>
   );
 }
 
 /**
  * « Marquer visité » and « À visiter » / « Retirer », as the Place's Status allows. A Status
- * the Place only inherits offers no « Retirer »: there is no Mark of its own to take back.
+ * the Place only inherits offers no « Retirer »: there is no Mark of its own to take back,
+ * nor a Visit date of its own to change.
  */
 function MarkActions({
   status,
   canRemove,
   feminine,
   onMark,
+  onEditDate,
 }: {
   status: Status;
   canRemove: boolean;
   feminine?: boolean;
   onMark: (mark: Mark | null) => void;
+  /** « Changer la date », on a Place marked Visited. */
+  onEditDate?: () => void;
 }) {
   if (status === 'visited') {
     if (!canRemove) return null;
     return (
       <View style={styles.actions}>
+        {onEditDate && (
+          <Button variant="secondary" icon={CalendarDays} onPress={onEditDate} style={styles.action}>
+            Changer la date
+          </Button>
+        )}
         <Button variant="secondary" icon={X} onPress={() => onMark(null)} style={styles.action}>
           Retirer
         </Button>

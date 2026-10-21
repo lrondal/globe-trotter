@@ -16,6 +16,8 @@ type JournalState = {
   mark(place: PlaceRef | City, mark: Mark | null): void;
   /** Takes back the last change of Mark (see Journal.undo). */
   undo(): void;
+  /** Of a Place marked Visited, YYYY-MM (see Journal.setVisitDate). */
+  setVisitDate(place: PlaceRef, visitDate: string): void;
   writeNote(place: PlaceRef | City, note: string): void;
   addTodo(place: PlaceRef | City, text: string): void;
   checkTodo(id: number, done: boolean): void;
@@ -59,6 +61,7 @@ export function JournalProvider({ children }: { children: ReactNode }) {
       undo() {
         if (journal.undo()) changed();
       },
+      setVisitDate: writing(journal.setVisitDate),
       writeNote: writing(journal.writeNote),
       addTodo: writing(journal.addTodo),
       checkTodo: writing(journal.checkTodo),
