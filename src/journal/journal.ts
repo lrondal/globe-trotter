@@ -3,6 +3,7 @@
 // held in memory, loaded when the Journal opens, so the globe can ask for every Country's
 // Status on each change without a query per Country.
 import type { Database } from './database.ts';
+import type { PhotoFiles } from './photoFiles.ts';
 import { monthOf, type VisitDates } from './visitDate.ts';
 
 export type Mark = 'visited' | 'wish';
@@ -45,6 +46,8 @@ type Options = {
     /** The Places at a point: its Country, and the Island or the Region it is in; null at sea. */
     locate(point: Point): Promise<PlaceIds | null>;
   };
+  /** Where Photos' files are copied; none is needed until a Photo is added. */
+  files?: PhotoFiles;
   now?: () => Date;
 };
 
@@ -55,10 +58,21 @@ export type Place = PlaceRef & {
   visitDate: string | null;
   /** The Place's Note; empty when it has none. */
   note: string;
+  /** The Photo the user chose as its Cover photo, if any: it may have gone since (see coverPhoto). */
+  coverPhotoId: number | null;
 };
 
 /** A checklist item of a Place. */
 export type Todo = { id: number; text: string; done: boolean };
+
+/**
+ * An image belonging to one Place: the names of its copy and its thumbnail in the app's
+ * PhotoFiles, and when it was added, an ISO date-time.
+ */
+export type Photo = { id: number; place: PlaceRef; file: string; thumbnail: string; addedAt: string; caption: string };
+
+/** The longest Caption, in characters. */
+export const CAPTION_MAX = 200;
 
 /** Schema changes, in order: the database records how many it has run in `user_version`. */
 const MIGRATIONS = [
@@ -93,6 +107,17 @@ const MIGRATIONS = [
   )`,
   // A Custom City is a City the user dropped on the globe, rather than one of the list.
   `ALTER TABLE cities ADD COLUMN custom INTEGER NOT NULL DEFAULT 0`,
+  // A Place's Photos are in the order they were added, which is the order of their ids.
+  `CREATE TABLE photos (
+    id INTEGER PRIMARY KEY,
+    level TEXT NOT NULL,
+    place_id TEXT NOT NULL,
+    file TEXT NOT NULL,
+    thumbnail TEXT NOT NULL,
+    added_at TEXT NOT NULL,
+    caption TEXT NOT NULL DEFAULT ''
+  )`,
+  `ALTER TABLE places ADD COLUMN cover_photo_id INTEGER`,
 ];
 
 /** Runs `writes` all together or not at all. */
@@ -116,9 +141,41 @@ function migrate(db: Database) {
   });
 }
 
-type Row = { id: string; level: PlaceRef['level']; mark: Mark | null; visit_date: string | null; note: string };
+type Row = {
+  id: string;
+  level: PlaceRef['level'];
+  mark: Mark | null;
+  visit_date: string | null;
+  note: string;
+  cover_photo_id: number | null;
+};
 
 type TodoRow = { id: number; level: PlaceRef['level']; place_id: string; text: string; done: number };
+
+type PhotoRow = {
+  id: number;
+  level: PlaceRef['level'];
+  place_id: string;
+  file: string;
+  thumbnail: string;
+  added_at: string;
+  caption: string;
+};
+
+const toPhoto = (row: PhotoRow): Photo => ({
+  id: row.id,
+  place: { level: row.level, id: row.place_id },
+  file: row.file,
+  thumbnail: row.thumbnail,
+  addedAt: row.added_at,
+  caption: row.caption,
+});
+
+/** Photos' files are copied only once a Photo is added: the Journal opens without them. */
+const NO_FILES: PhotoFiles = {
+  copy: () => Promise.reject(new Error('No PhotoFiles to copy Photos into')),
+  remove: () => {},
+};
 
 type CityRow = {
   id: string;
@@ -152,6 +209,7 @@ const toPlace = (row: Row): Place => ({
   mark: row.mark,
   visitDate: row.visit_date,
   note: row.note,
+  coverPhotoId: row.cover_photo_id,
 });
 
 const keyOf = (place: PlaceRef) => `${place.level}:${place.id}`;
@@ -164,10 +222,10 @@ const placeOf = (key: string): PlaceRef => {
   return { level: key.slice(0, colon) as PlaceRef['level'], id: key.slice(colon + 1) };
 };
 
-export function openJournal({ db, atlas, now = () => new Date() }: Options) {
+export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date() }: Options) {
   migrate(db);
   const places = new Map(
-    db.all<Row>('SELECT id, level, mark, visit_date, note FROM places').map((row) => [keyOf(row), toPlace(row)]),
+    db.all<Row>('SELECT id, level, mark, visit_date, note, cover_photo_id FROM places').map((row) => [keyOf(row), toPlace(row)]),
   );
   /** The Todos of each Place that has some, in order. */
   const todos = new Map<string, Todo[]>();
@@ -176,6 +234,13 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
     todos.set(key, [...(todos.get(key) ?? []), { id: row.id, text: row.text, done: row.done === 1 }]);
   }
   let lastTodoId = Math.max(0, ...[...todos.values()].flat().map((todo) => todo.id));
+  /** The Photos of each Place that has some, in the order they were added. */
+  const photos = new Map<string, Photo[]>();
+  for (const row of db.all<PhotoRow>('SELECT id, level, place_id, file, thumbnail, added_at, caption FROM photos ORDER BY id')) {
+    const photo = toPhoto(row);
+    photos.set(keyOf(photo.place), [...(photos.get(keyOf(photo.place)) ?? []), photo]);
+  }
+  let lastPhotoId = Math.max(0, ...[...photos.values()].flat().map((photo) => photo.id));
   const cities = new Map(
     db
       .all<CityRow>('SELECT id, name, lon, lat, country_id, island_id, region_id, custom FROM cities')
@@ -241,6 +306,14 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
     }
     throw new Error(`No Todo ${id}`);
   };
+  /** A Photo of the Journal, by id. */
+  const findPhoto = (id: number): Photo => {
+    for (const list of photos.values()) {
+      const photo = list.find((p) => p.id === id);
+      if (photo) return photo;
+    }
+    throw new Error(`No Photo ${id}`);
+  };
   /** Records `list` as the Todos of the Place `key`, in order: positions run 0, 1, 2… */
   const setOrder = (key: string, list: Todo[]) => {
     list.forEach((todo, position) => db.run('UPDATE todos SET position = ? WHERE id = ?', [position, todo.id]));
@@ -250,22 +323,19 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
 
   /** The Journal's record of `place`, or a blank one when it has none. */
   const recordOf = (place: PlaceRef): Place =>
-    places.get(keyOf(place)) ?? { level: place.level, id: place.id, mark: null, visitDate: null, note: '' };
-  const hasContent = (place: Place) => place.note !== '' || todos.has(keyOf(place));
-  /** Records `place`, or forgets it once it holds nothing. */
+    places.get(keyOf(place)) ?? { level: place.level, id: place.id, mark: null, visitDate: null, note: '', coverPhotoId: null };
+  const hasContent = (place: Place) => place.note !== '' || todos.has(keyOf(place)) || photos.has(keyOf(place));
+  /** Records `place`, or forgets it once it holds nothing: not even a choice of Cover photo. */
   const save = (place: Place) => {
-    if (place.mark === null && !hasContent(place)) {
+    if (place.mark === null && place.coverPhotoId === null && !hasContent(place)) {
       db.run('DELETE FROM places WHERE level = ? AND id = ?', [place.level, place.id]);
       places.delete(keyOf(place));
       return;
     }
-    db.run('INSERT OR REPLACE INTO places (level, id, mark, visit_date, note) VALUES (?, ?, ?, ?, ?)', [
-      place.level,
-      place.id,
-      place.mark,
-      place.visitDate,
-      place.note,
-    ]);
+    db.run(
+      'INSERT OR REPLACE INTO places (level, id, mark, visit_date, note, cover_photo_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [place.level, place.id, place.mark, place.visitDate, place.note, place.coverPhotoId],
+    );
     places.set(keyOf(place), place);
   };
 
@@ -288,6 +358,23 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
       if (at > 0) found.set(keyOf(chain[at - 1]), chain[at - 1]);
     }
     return [...found.values()];
+  };
+  const photosInside = (place: PlaceRef): Photo[] => {
+    const key = keyOf(place);
+    return [...photos.values()]
+      .filter(([{ place: owner }]) => chainOf(owner).slice(1).some((up) => keyOf(up) === key))
+      .flat()
+      .sort((a, b) => a.id - b.id);
+  };
+  /**
+   * The Cover photo of a Place: the one chosen, while it is still the Place's or inside it;
+   * or else its first own Photo, or else the first inside it. Only its own with `ownOnly`.
+   */
+  const coverPhoto = (place: PlaceRef, ownOnly = false): Photo | null => {
+    const own = photos.get(keyOf(place)) ?? [];
+    const candidates = ownOnly ? own : [...own, ...photosInside(place)];
+    const chosen = recordOf(place).coverPhotoId;
+    return candidates.find((photo) => photo.id === chosen) ?? candidates[0] ?? null;
   };
   /** The highest of a Place's own Mark and the Statuses of the Places inside it. */
   const statusOf = (place: PlaceRef): Status => {
@@ -415,6 +502,97 @@ export function openJournal({ db, atlas, now = () => new Date() }: Options) {
         // The last Todo of a Place without a Mark or a Note takes its record with it.
         if (list.length === 1) save(recordOf(placeOf(key)));
       });
+    },
+    /**
+     * Copies images into the app as Photos of a Place, after its own, in the order given; a
+     * City given whole enters the Journal with them, if not there yet. Resolves with them.
+     */
+    async addPhotos(place: PlaceRef | City, sources: readonly string[]): Promise<Photo[]> {
+      const copies = [];
+      try {
+        for (const source of sources) copies.push(await files.copy(source));
+      } catch (error) {
+        files.remove(copies.flatMap(({ file, thumbnail }) => [file, thumbnail]));
+        throw error;
+      }
+      const ref = { level: place.level, id: place.id };
+      const addedAt = now().toISOString();
+      const added = copies.map((copy) => ({ id: ++lastPhotoId, place: ref, ...copy, addedAt, caption: '' }));
+      transaction(db, () => {
+        enter(place);
+        for (const photo of added) {
+          db.run('INSERT INTO photos (id, level, place_id, file, thumbnail, added_at) VALUES (?, ?, ?, ?, ?, ?)', [
+            photo.id,
+            ref.level,
+            ref.id,
+            photo.file,
+            photo.thumbnail,
+            addedAt,
+          ]);
+        }
+        photos.set(keyOf(ref), [...(photos.get(keyOf(ref)) ?? []), ...added]);
+        save(recordOf(ref));
+      });
+      return added;
+    },
+    /** The Photos of a Place, its own, in the order they were added. */
+    photos(place: PlaceRef): readonly Photo[] {
+      return photos.get(keyOf(place)) ?? [];
+    },
+    /**
+     * The Photos of the Places inside a Place, not its own, in the order they were added: a
+     * Country's are those of its Regions and of its Cities. A Photo is listed by its Place only.
+     */
+    photosInside(place: PlaceRef): Photo[] {
+      return photosInside(place);
+    },
+    /**
+     * The Photo that represents a Place, on the globe and in its sheet (see coverPhoto above);
+     * null when neither it nor the Places inside it have Photos.
+     */
+    coverPhoto(place: PlaceRef, ownOnly = false): Photo | null {
+      return coverPhoto(place, ownOnly);
+    },
+    /** Chooses a Place's Cover photo, among its own Photos and those of the Places inside it. */
+    setCoverPhoto(place: PlaceRef, photoId: number) {
+      const own = photos.get(keyOf(place)) ?? [];
+      if (![...own, ...photosInside(place)].some((photo) => photo.id === photoId)) {
+        throw new Error(`Photo ${photoId} is neither of ${keyOf(place)} nor inside it`);
+      }
+      save({ ...recordOf(place), coverPhotoId: photoId });
+    },
+    /** Every Place with Photos of its own or inside it, in no set order: those the globe shows. */
+    photographed(): PlaceRef[] {
+      const found = new Map<string, PlaceRef>();
+      for (const [{ place }] of photos.values()) {
+        for (const up of chainOf(place)) found.set(keyOf(up), { level: up.level, id: up.id });
+      }
+      return [...found.values()];
+    },
+    /** Sets a Photo's Caption: one line of CAPTION_MAX characters at most, or empty for none. */
+    setCaption(id: number, caption: string) {
+      if (caption.length > CAPTION_MAX || /[\r\n]/.test(caption)) throw new Error(`No Caption ${JSON.stringify(caption)}`);
+      const photo = findPhoto(id);
+      db.run('UPDATE photos SET caption = ? WHERE id = ?', [caption, id]);
+      const key = keyOf(photo.place);
+      photos.set(key, photos.get(key)!.map((p) => (p.id === id ? { ...p, caption } : p)));
+    },
+    /** Deletes a Photo and its files; the last Photo of a Place without a Mark or content takes its record. */
+    deletePhoto(id: number) {
+      const photo = findPhoto(id);
+      const key = keyOf(photo.place);
+      const rest = photos.get(key)!.filter((p) => p.id !== id);
+      transaction(db, () => {
+        db.run('DELETE FROM photos WHERE id = ?', [id]);
+        // Its id may be given to a Photo added later: no Place keeps it as its Cover photo.
+        for (const record of [...places.values()]) {
+          if (record.coverPhotoId === id) save({ ...record, coverPhotoId: null });
+        }
+        if (rest.length > 0) photos.set(key, rest);
+        else photos.delete(key);
+        save(recordOf(photo.place));
+      });
+      files.remove([photo.file, photo.thumbnail]);
     },
     /** The Journal's record of a Place, or null when it holds nothing about it. */
     place(place: PlaceRef): Place | null {

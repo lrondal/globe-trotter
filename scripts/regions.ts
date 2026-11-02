@@ -11,7 +11,7 @@ import type { Topology } from 'topojson-specification';
 
 import { COORD_SCALE, type CountriesData, type CountryData } from '../src/atlas/countries.ts';
 import { decodeRegions, type RegionIndex, type RegionsData } from '../src/atlas/regions.ts';
-import { encodeArc, levelArcs, levelOf, NOT_ON_THE_MAP } from './countries.ts';
+import { anchorOf, encodeArc, levelArcs, levelOf, NOT_ON_THE_MAP } from './countries.ts';
 import { SOURCES, type RegionFeature, type Source } from './geoboundaries.ts';
 
 const require = createRequire(import.meta.url);
@@ -189,7 +189,19 @@ function encodeRegions(regions: { id: string; name: string; shape: MultiPolygon 
     if (object.type === 'Polygon') return [object.arcs as number[][]];
     return (object.arcs as number[][][]) ?? [];
   };
-  const out: CountryData[] = regions.map(({ id, name }) => ({ id, name, polygons: polygonsOf(id) }));
+  const out: CountryData[] = regions.map(({ id, name }) => ({
+    id,
+    name,
+    polygons: polygonsOf(id),
+    // polygon-clipping winds outer rings anticlockwise; d3, measuring on the sphere, clockwise.
+    anchor: anchorOf(
+      geometries[id].coordinates.map((polygon) => ({
+        type: 'Polygon' as const,
+        coordinates: polygon.map((ring) => [...ring].reverse() as [number, number][]),
+      })),
+      `Region ${id} ${name}`,
+    ),
+  }));
   return { regions: out, arcs: levelled.map(encodeArc) };
 }
 

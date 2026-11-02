@@ -10,12 +10,28 @@
 // it while it fades to its tint: the flight never waits for them. A tap on one of them flies
 // to it, and its outline darkens while the one left fades back; tapped again, or « ‹ Country »
 // in the sheet, the globe flies back to the Country, its Regions staying. The Journal's Cities are
-// ink dots, drawn over everything but the rim. A long press tells the parent the point of
-// the globe under the finger, where a Custom City goes.
-import { Canvas, Circle, Group, notifyChange, Path, Skia, usePathValue } from '@shopify/react-native-skia';
+// ink dots, drawn over everything but the rim, and the Places' Photos are round thumbnails
+// over them (see thumbnails.ts), drawn as one picture and faded in and out on the UI thread.
+// A tap on a thumbnail or a City's dot is a tap on its Place. A long press tells the parent
+// the point of the globe under the finger, where a Custom City goes.
+import {
+  BlurStyle,
+  Canvas,
+  Circle,
+  ClipOp,
+  createPicture,
+  Group,
+  matchFont,
+  notifyChange,
+  Path,
+  Picture,
+  Skia,
+  usePathValue,
+  type SkImage,
+} from '@shopify/react-native-skia';
 import { LocateFixed, Minus, Plus } from 'lucide-react-native';
 import { memo, useEffect, useImperativeHandle, useMemo, useState, type Ref } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   cancelAnimation,
@@ -53,7 +69,7 @@ import {
   type Spin,
   type View as GlobeView,
 } from './camera';
-import { countryAt } from './hitTest';
+import { countryAt, TAP_TOLERANCE } from './hitTest';
 import { LAYER, type Layer } from './layers';
 import { MeasurePanel, type Measures } from './MeasurePanel';
 import {
@@ -69,6 +85,7 @@ import {
   type Detail,
   type Viewport,
 } from './projection';
+import { HIDDEN, keepApart, OWN, shownAs, thumbnailDiameter, TIER, type Thumbnail } from './thumbnails';
 
 const zoomTiming = { duration: duration.slow, easing: Easing.bezier(...easing.out) };
 /** How the Regions and the tint of their Country fade in and out. */
@@ -85,6 +102,16 @@ const LOCATION_RING = 1.5;
 /** A City: a 7 pt ink dot with a 1.2 pt paper ring, in points. */
 const CITY_RADIUS = 3.5;
 const CITY_RING = 1.2;
+/** A thumbnail floats this far above its Place's point, in points, so a City's dot shows under it. */
+const THUMBNAIL_LIFT = 4;
+/** Its paper ring, in points. */
+const THUMBNAIL_RING = 1.5;
+/** A thumbnail is tapped this far from its centre, in points: a 44 pt zone. */
+const THUMBNAIL_REACH = layout.hitMin / 2;
+/** Its counter: a pill this high, in points, over its top right. */
+const COUNTER_HEIGHT = 14;
+/** A City's dot is tapped this far from it, in points. */
+const CITY_REACH = CITY_RADIUS + TAP_TOLERANCE;
 /** Measures are reported to the panel this often, in milliseconds. */
 const MEASURE_EVERY = 500;
 /** One path per colour layer, in LAYER order. */
@@ -107,6 +134,21 @@ const MEASURE_TOP = 56;
 export type ShownRegions = { country: number; geometry: CountryGeometry };
 /** The colour layer of each Region of the Country at index `country`, in their order. */
 export type RegionLayers = { country: number; layers: Layer[] };
+/** A Journal City's dot. */
+export type CityDot = Point & { id: string };
+/**
+ * A Place's Photo thumbnail: where it sits, the image of its Cover photo, and of its Cover
+ * photo among its own Photos when it has some (see thumbnails.ts).
+ */
+export type GlobeThumbnail = Thumbnail &
+  Point & {
+    /** Its Place's key, which keeps its fade from one list to the next. */
+    key: string;
+    /** The City it is, if any. */
+    city: string | null;
+    image: SkImage;
+    ownImage: SkImage | null;
+  };
 
 /** The fill of a Region's own path: its layer's colour, if its layer is filled. */
 function fillOf(layer: Layer | undefined) {
@@ -156,8 +198,12 @@ type Props = {
   regionLayers: SharedValue<RegionLayers | null>;
   /** Index of the Region tapped, in the geometry of `regions`, as the globe flies to it. */
   onSelectRegion: (region: number) => void;
-  /** The points of the Journal's Cities. */
-  cities: SharedValue<Point[]>;
+  /** The Journal's Cities. */
+  cities: SharedValue<CityDot[]>;
+  /** The City whose dot or thumbnail is tapped, as the globe would select it. */
+  onSelectCity: (id: string) => void;
+  /** The Places with Photos, in no set order. */
+  thumbnails: SharedValue<GlobeThumbnail[]>;
   /** The point of the globe under a long press; none off the globe. */
   onLongPress: (point: Point) => void;
   ref?: Ref<GlobeHandle>;
@@ -174,6 +220,8 @@ export const Globe = memo(function Globe({
   regionLayers,
   onSelectRegion,
   cities,
+  onSelectCity,
+  thumbnails,
   onLongPress,
   ref,
 }: Props) {
@@ -470,11 +518,144 @@ export const Globe = memo(function Globe({
   const cityRings = useDerivedValue(() => cityPaths.value[0]);
   const cityDots = useDerivedValue(() => cityPaths.value[1]);
 
+  // The thumbnails: each one's opacity, which the frame callback moves towards its target,
+  // and, from the last frame drawn, where those shown are, for a tap.
+  const thumbnailAlpha = useSharedValue<Record<string, number>>({});
+  const thumbnailTarget = useSharedValue<Record<string, number>>({});
+  const thumbnailSpots = useSharedValue<{ x: number; y: number; t: number }[]>([]);
+  const paints = useMemo(() => {
+    const shadow = Skia.Paint();
+    shadow.setColor(Skia.Color('rgba(27,26,23,0.3)'));
+    shadow.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 2, true));
+    const ring = Skia.Paint();
+    ring.setColor(Skia.Color(colors.paper0));
+    const image = Skia.Paint();
+    image.setAntiAlias(true);
+    const counter = Skia.Paint();
+    counter.setColor(Skia.Color(colors.ink1));
+    const count = Skia.Paint();
+    count.setColor(Skia.Color(colors.paper0));
+    return { shadow, ring, image, counter, count };
+  }, []);
+  const counterFont = useMemo(
+    () => matchFont({ fontFamily: Platform.select({ ios: 'Helvetica Neue', default: 'sans-serif' }), fontSize: 9, fontWeight: '600' }),
+    [],
+  );
+  const thumbnailPicture = useDerivedValue(() => {
+    const { width, height } = viewport.value;
+    const list = thumbnails.value;
+    const alpha = thumbnailAlpha.value;
+    const camera = frameFor({ lon: lon.value, lat: lat.value, zoom: zoom.value }, viewport.value, lift.value);
+    const selection = { country: selectedCountry.value, region: selectedRegion.value };
+    const d = thumbnailDiameter(zoom.value);
+    const xs: number[] = [];
+    const ys: number[] = [];
+    const counts: number[] = [];
+    const shown: boolean[] = [];
+    const as: number[] = [];
+    for (const t of list) {
+      const { x, y, visible } = projectPoint(camera, t);
+      const showing = shownAs(t, selection, zoom.value);
+      xs.push(x);
+      ys.push(y - d / 2 - THUMBNAIL_LIFT);
+      as.push(showing);
+      counts.push(showing === OWN ? t.ownCount : t.count);
+      shown.push(visible && showing !== HIDDEN && (showing !== OWN || t.ownImage !== null));
+    }
+    const kept = keepApart(xs, ys, counts, shown, d);
+    const target: Record<string, number> = {};
+    const spots: { x: number; y: number; t: number }[] = [];
+    list.forEach((t, i) => {
+      target[t.key] = kept[i] ? 1 : 0;
+      if (kept[i] && (alpha[t.key] ?? 0) > 0.5) spots.push({ x: xs[i], y: ys[i], t: i });
+    });
+    thumbnailTarget.value = target;
+    thumbnailSpots.value = spots;
+    return createPicture(
+      (canvas) => {
+        const r = d / 2;
+        list.forEach((t, i) => {
+          const a = alpha[t.key] ?? 0;
+          // Off the near side, a thumbnail goes at once rather than fading over the rim.
+          if (a <= 0 || !shown[i]) return;
+          const image = as[i] === OWN && t.ownImage ? t.ownImage : t.image;
+          const [x, y] = [xs[i], ys[i]];
+          paints.shadow.setAlphaf(0.3 * a);
+          canvas.drawCircle(x, y + 2, r, paints.shadow);
+          paints.ring.setAlphaf(a);
+          canvas.drawCircle(x, y, r, paints.ring);
+          // The middle square of the image, cut round inside the ring.
+          const [w, h] = [image.width(), image.height()];
+          const side = Math.min(w, h);
+          const inner = r - THUMBNAIL_RING;
+          const disc = Skia.XYWHRect(x - inner, y - inner, 2 * inner, 2 * inner);
+          canvas.save();
+          canvas.clipRRect(Skia.RRectXY(disc, inner, inner), ClipOp.Intersect, true);
+          paints.image.setAlphaf(a);
+          canvas.drawImageRect(image, Skia.XYWHRect((w - side) / 2, (h - side) / 2, side, side), disc, paints.image);
+          canvas.restore();
+          if (counts[i] < 2) return;
+          // The counter: an ink pill ringed with paper, over the top right.
+          const label = String(counts[i]);
+          const textWidth = counterFont.measureText(label).width;
+          const pill = Math.max(COUNTER_HEIGHT, textWidth + 8);
+          const [px, py] = [x + r * 0.7 - pill / 2, y - r * 0.7 - COUNTER_HEIGHT / 2];
+          canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(px - 1, py - 1, pill + 2, COUNTER_HEIGHT + 2), 8, 8), paints.ring);
+          paints.counter.setAlphaf(a);
+          canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(px, py, pill, COUNTER_HEIGHT), 7, 7), paints.counter);
+          paints.count.setAlphaf(a);
+          canvas.drawText(label, px + (pill - textWidth) / 2, py + COUNTER_HEIGHT / 2 + 3, paints.count, counterFont);
+        });
+      },
+      { width, height },
+    );
+  });
+
   const tap = Gesture.Tap()
     .maxDistance(10)
     .onEnd((e, success) => {
       if (!success) return;
       const f = frame();
+      // A thumbnail, or else a City's dot, before the land they are drawn over: the nearest.
+      let thumbnail = -1;
+      let nearest = THUMBNAIL_REACH;
+      for (const spot of thumbnailSpots.value) {
+        const distance = Math.hypot(spot.x - e.x, spot.y - e.y);
+        if (distance < nearest) {
+          nearest = distance;
+          thumbnail = spot.t;
+        }
+      }
+      const t = thumbnail >= 0 ? thumbnails.value[thumbnail] : null;
+      if (t?.city) {
+        scheduleOnRN(onSelectCity, t.city);
+        return;
+      }
+      if (t && t.tier === TIER.region) {
+        const loaded = regions.value;
+        if (t.country === selectedCountry.value && t.region === selectedRegion.value) backToCountry();
+        else if (loaded?.country === t.country) flyToRegion(loaded, t.region);
+        else selectRegion(t.country, t.region);
+        return;
+      }
+      if (t) {
+        select(t.country);
+        return;
+      }
+      let city: string | null = null;
+      let nearestCity = CITY_REACH;
+      for (const dot of cities.value) {
+        const { x, y, visible } = projectPoint(f, dot);
+        const distance = Math.hypot(x - e.x, y - e.y);
+        if (visible && distance < nearestCity) {
+          nearestCity = distance;
+          city = dot.id;
+        }
+      }
+      if (city !== null) {
+        scheduleOnRN(onSelectCity, city);
+        return;
+      }
       const country = countryAt(countryGeometry, f, detailArea, e.x, e.y);
       // Inside the selected Country, once its Regions show, a tap picks one of them; the one
       // selected, tapped again, goes back to the Country.
@@ -585,6 +766,19 @@ export const Globe = memo(function Globe({
       lift.value = shot.lift;
       flight.value = done ? null : { ...flying, elapsed };
     }
+    // Thumbnails fade towards being shown or not; nothing is written once they are there.
+    const target = thumbnailTarget.value;
+    const alpha = thumbnailAlpha.value;
+    let fading = false;
+    const faded: Record<string, number> = {};
+    for (const key in target) {
+      const from = alpha[key] ?? 0;
+      const to = target[key];
+      const step = dt / duration.base;
+      faded[key] = to > from ? Math.min(to, from + step) : Math.max(to, from - step);
+      if (faded[key] !== from) fading = true;
+    }
+    if (fading) thumbnailAlpha.value = faded;
     if (!measuring) return;
     // fps and build time while the globe moves, as in the prototype's panel.
     const w = meter.value;
@@ -673,6 +867,7 @@ export const Globe = memo(function Globe({
           </Group>
           <Path path={cityRings} color={colors.paper0} />
           <Path path={cityDots} color={colors.globePin} />
+          <Picture picture={thumbnailPicture} />
           <Circle cx={cx} cy={cy} r={r} style="stroke" strokeWidth={1} color={colors.globeRim} />
         </Canvas>
       </GestureDetector>

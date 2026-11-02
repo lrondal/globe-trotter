@@ -5,7 +5,8 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 import { containerOf, placeIdsAt, places } from '@/atlas';
 
 import { deviceDatabase } from './deviceDatabase';
-import { openJournal, type City, type Journal, type Mark, type PlaceRef, type Point } from './journal';
+import { devicePhotoFiles } from './devicePhotoFiles';
+import { openJournal, type City, type Journal, type Mark, type Photo, type PlaceRef, type Point } from './journal';
 
 type JournalState = {
   /** Read-only here: write through the functions below, so the screens re-render. */
@@ -28,12 +29,21 @@ type JournalState = {
   renameCity(id: string, name: string): void;
   /** Resolves with whether the Custom City moved: not at sea (see Journal.moveCity). */
   moveCity(id: string, point: Point): Promise<boolean>;
+  /** Resolves once the images are copied into the app (see Journal.addPhotos). */
+  addPhotos(place: PlaceRef | City, sources: readonly string[]): Promise<Photo[]>;
+  deletePhoto(id: number): void;
+  setCaption(id: number, caption: string): void;
+  setCoverPhoto(place: PlaceRef, photoId: number): void;
 };
 
 const JournalContext = createContext<JournalState | null>(null);
 
 export function JournalProvider({ children }: { children: ReactNode }) {
-  const [journal] = useState(() => openJournal({ db: deviceDatabase(), atlas: { places, containerOf, locate: placeIdsAt } }));
+  const [journal] = useState(() => openJournal({
+      db: deviceDatabase(),
+      atlas: { places, containerOf, locate: placeIdsAt },
+      files: devicePhotoFiles(),
+    }));
   const [version, setVersion] = useState(0);
 
   // A new value after each change, so every reader re-renders.
@@ -70,6 +80,10 @@ export function JournalProvider({ children }: { children: ReactNode }) {
       createCity: writingAfter(journal.createCity),
       renameCity: writing(journal.renameCity),
       moveCity: writingAfter(journal.moveCity),
+      addPhotos: writingAfter(journal.addPhotos),
+      deletePhoto: writing(journal.deletePhoto),
+      setCaption: writing(journal.setCaption),
+      setCoverPhoto: writing(journal.setCoverPhoto),
     };
   }, [journal, version]);
 

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 
 import { openJournal, type PlaceRef } from './journal.ts';
 import { memoryDatabase } from './memoryDatabase.ts';
+import { memoryPhotoFiles } from './memoryPhotoFiles.ts';
 
 /** Regions of Japan, the only Places of the test Atlas inside another. */
 const REGIONS: Record<string, string> = { kansai: '392', kanto: '392' };
@@ -541,4 +542,122 @@ test('undoing the removal of a Mark gives back the Visit date as the user set it
   j.mark(france, null);
   j.undo();
   assert.equal(j.place(france)?.visitDate, '2019-07');
+});
+
+test('Photos added to a Place are copied into the app and listed in the order they were added', async () => {
+  const files = memoryPhotoFiles();
+  const j = openJournal({ db: memoryDatabase(), atlas, files });
+  const [first, second] = await j.addPhotos(france, ['file:///roll/sarlat.heic', 'file:///roll/annecy.heic']);
+  const [third] = await j.addPhotos(france, ['file:///camera/lyon.jpg']);
+  assert.deepEqual(j.photos(france).map((p) => p.id), [first.id, second.id, third.id]);
+  assert.equal(files.held().length, 6);
+  assert.ok(files.held().includes(first.file) && files.held().includes(first.thumbnail));
+  assert.equal(j.status(france), 'unexplored');
+  assert.notEqual(j.place(france), null);
+});
+
+test('a deleted Photo is gone with its files, and the last one lets an unmarked Place go', async () => {
+  const files = memoryPhotoFiles();
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas, files });
+  const [sarlat, annecy] = await j.addPhotos(france, ['sarlat.heic', 'annecy.heic']);
+  j.deletePhoto(sarlat.id);
+  assert.deepEqual(openJournal({ db, atlas }).photos(france).map((p) => p.id), [annecy.id]);
+  assert.deepEqual(files.held().sort(), [annecy.file, annecy.thumbnail].sort());
+  j.deletePhoto(annecy.id);
+  assert.deepEqual(files.held(), []);
+  assert.equal(j.place(france), null);
+});
+
+test('a Caption written on a Photo survives reopening the app, and can be erased', async () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas, files: memoryPhotoFiles() });
+  const [photo] = await j.addPhotos(france, ['sarlat.heic']);
+  assert.equal(photo.caption, '');
+  j.setCaption(photo.id, 'Le marché du samedi');
+  assert.equal(openJournal({ db, atlas }).photos(france)[0].caption, 'Le marché du samedi');
+  j.setCaption(photo.id, '');
+  assert.equal(j.photos(france)[0].caption, '');
+});
+
+test('a Caption is one line of 200 characters at most', async () => {
+  const j = openJournal({ db: memoryDatabase(), atlas, files: memoryPhotoFiles() });
+  const [photo] = await j.addPhotos(france, ['sarlat.heic']);
+  j.setCaption(photo.id, 'a'.repeat(200));
+  assert.throws(() => j.setCaption(photo.id, 'a'.repeat(201)));
+  assert.throws(() => j.setCaption(photo.id, 'Sarlat\nle samedi'));
+  assert.equal(j.photos(france)[0].caption, 'a'.repeat(200));
+});
+
+test('a Country lists the Photos of the Places inside it, apart from its own, in the order they were added', async () => {
+  const j = openJournal({ db: memoryDatabase(), atlas, files: memoryPhotoFiles() });
+  const [temple] = await j.addPhotos(kyoto, ['temple.heic']);
+  const [nara] = await j.addPhotos(kansai, ['nara.heic']);
+  await j.addPhotos(japan, ['fuji.heic']);
+  await j.addPhotos(naha, ['plage.heic']);
+  const [gion] = await j.addPhotos(kyoto, ['gion.heic']);
+  assert.deepEqual(j.photosInside(japan).map((p) => p.id), [temple.id, nara.id, gion.id]);
+  assert.deepEqual(j.photosInside(kansai).map((p) => p.id), [temple.id, gion.id]);
+  assert.deepEqual(j.photosInside(kyoto), []);
+  assert.equal(j.city(kyoto.id)?.name, 'Kyōto');
+});
+
+test('without a choice, the Cover photo is the first Photo of the Place, or else the first inside it', async () => {
+  const j = openJournal({ db: memoryDatabase(), atlas, files: memoryPhotoFiles() });
+  assert.equal(j.coverPhoto(japan), null);
+  const [temple] = await j.addPhotos(kyoto, ['temple.heic']);
+  assert.equal(j.coverPhoto(japan)?.id, temple.id);
+  const [fuji] = await j.addPhotos(japan, ['fuji.heic', 'tokyo.heic']);
+  assert.equal(j.coverPhoto(japan)?.id, fuji.id);
+});
+
+test('a Cover photo chosen among the Photos inside a Place survives reopening the app', async () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas, files: memoryPhotoFiles() });
+  await j.addPhotos(japan, ['fuji.heic']);
+  const [, gion] = await j.addPhotos(kyoto, ['temple.heic', 'gion.heic']);
+  j.setCoverPhoto(japan, gion.id);
+  assert.equal(openJournal({ db, atlas }).coverPhoto(japan)?.id, gion.id);
+});
+
+test('a Cover photo is chosen only among the Photos of the Place and of the Places inside it', async () => {
+  const j = openJournal({ db: memoryDatabase(), atlas, files: memoryPhotoFiles() });
+  const [sarlat] = await j.addPhotos(france, ['sarlat.heic']);
+  const [fuji] = await j.addPhotos(japan, ['fuji.heic']);
+  await j.addPhotos(kyoto, ['temple.heic']);
+  assert.throws(() => j.setCoverPhoto(japan, sarlat.id));
+  assert.throws(() => j.setCoverPhoto(kyoto, fuji.id));
+  assert.equal(j.coverPhoto(japan)?.id, fuji.id);
+});
+
+test('a chosen Cover photo deleted falls back to the first Photo, even once its id comes back', async () => {
+  const db = memoryDatabase();
+  const files = memoryPhotoFiles();
+  const j = openJournal({ db, atlas, files });
+  const [fuji, tokyo] = await j.addPhotos(japan, ['fuji.heic', 'tokyo.heic']);
+  j.setCoverPhoto(japan, tokyo.id);
+  j.deletePhoto(tokyo.id);
+  assert.equal(j.coverPhoto(japan)?.id, fuji.id);
+  const reopened = openJournal({ db, atlas, files });
+  await reopened.addPhotos(japan, ['osaka.heic']);
+  assert.equal(reopened.coverPhoto(japan)?.id, fuji.id);
+});
+
+test('a chosen Cover photo whose City moves out of the Place falls back to the first Photo inside it', async () => {
+  const j = openJournal({ db: memoryDatabase(), atlas, files: memoryPhotoFiles() });
+  const city = await j.createCity('Le ryokan', { lon: 135, lat: 35 });
+  const [ryokan] = await j.addPhotos(city!, ['ryokan.heic']);
+  const [temple] = await j.addPhotos(kyoto, ['temple.heic']);
+  j.setCoverPhoto(kansai, ryokan.id);
+  await j.moveCity(city!.id, { lon: 139.7, lat: 35.7 });
+  assert.equal(j.coverPhoto(kansai)?.id, temple.id);
+});
+
+test('the Places with Photos are those holding some, and those with some inside them', async () => {
+  const j = openJournal({ db: memoryDatabase(), atlas, files: memoryPhotoFiles() });
+  await j.addPhotos(kyoto, ['temple.heic']);
+  await j.addPhotos(naha, ['plage.heic']);
+  await j.addPhotos(france, ['sarlat.heic']);
+  const keys = (places: PlaceRef[]) => places.map(({ level, id }) => `${level}:${id}`).sort();
+  assert.deepEqual(keys(j.photographed()), keys([kyoto, kansai, japan, naha, { level: 'island', id: 'i-okinawa' }, france]));
 });

@@ -15,7 +15,7 @@ import type { CityRecord } from './cities';
 
 export type { CityMatch, SearchResults } from './atlas';
 export type { CityRecord } from './cities';
-export { footprintOf } from './countries';
+export { anchorOf, footprintOf } from './countries';
 export type { CountryGeometry, CountryRecord, Footprint } from './countries';
 export type { RegionGeometry, RegionRecord } from './regions';
 

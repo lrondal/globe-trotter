@@ -11,6 +11,7 @@ import {
   type CountryData as Country,
   type CountryRecord,
 } from '../src/atlas/countries.ts';
+import { poleOfInaccessibility } from './anchor.ts';
 import { ISLANDS, type IslandSpec } from './islands.ts';
 
 const require = createRequire(import.meta.url);
@@ -90,7 +91,10 @@ export function buildCountries(world: WorldAtlas, islands: IslandSpec[] = ISLAND
   }
   const arcs = levelledArcs(world);
   const countries = [...byId.values(), ...carveIslands(islands, byId, arcs)];
-  for (const country of countries) checkOutline(country, arcs);
+  for (const country of countries) {
+    checkOutline(country, arcs);
+    country.anchor = anchorOf(country.polygons.map((p) => polygonShape(p, arcs)), `${country.id} ${country.name}`);
+  }
   return { countries, arcs: arcs.map(encodeArc) };
 }
 
@@ -193,6 +197,18 @@ export function encodeArc(arc: Point[]): number[] {
     [lon0, lat0] = [lon1, lat1];
   }
   return flat;
+}
+
+/**
+ * Where a Place's Photo thumbnail sits: the pole of inaccessibility of its largest polygon,
+ * at the shipped precision. Coherence check: it is on that polygon.
+ */
+export function anchorOf(polygons: { type: 'Polygon'; coordinates: [number, number][][] }[], name: string): [number, number] {
+  const largest = polygons.reduce((a, b) => (geoArea(b) > geoArea(a) ? b : a));
+  const [lon, lat] = poleOfInaccessibility(largest.coordinates);
+  const anchor: [number, number] = [Math.round(lon * COORD_SCALE) / COORD_SCALE, Math.round(lat * COORD_SCALE) / COORD_SCALE];
+  if (!geoContains(largest, anchor)) throw new Error(`${name}: its anchor [${anchor}] is off its largest polygon`);
+  return anchor;
 }
 
 /** Coherence check: a Country is a real outline, wound so that it covers less than a hemisphere. */

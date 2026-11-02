@@ -1,17 +1,33 @@
-// The Note of a Place: its free text and its Todos, opened from « Ouvrir le carnet ».
-// Writing it never marks the Place.
+// The Note of a Place: its free text, its Todos and its Photos, opened from « Ouvrir le
+// carnet ». Writing it never marks the Place.
 import { router } from 'expo-router';
-import { ChevronLeft, MapPin, Plus } from 'lucide-react-native';
+import { Camera, ChevronLeft, ImagePlus, MapPin, Plus } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import { AppState, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  AppState,
+  Image,
+  KeyboardAvoidingView,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 // The legacy one: TodoList's drag blocks it, a relation the hook-based ScrollView of v3 cannot take.
 import { LegacyScrollView as ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/Button';
 import { IconButton } from '@/components/IconButton';
 import { useShowOnGlobe } from '@/globe/ShowOnGlobeProvider';
 import type { City, PlaceRef } from '@/journal/journal';
+import { photoUri } from '@/journal/devicePhotoFiles';
 import { useJournal } from '@/journal/JournalProvider';
+import { openPhoto } from '@/photos/openPhoto';
+import { pickFromLibrary, takePhoto } from '@/photos/pick';
+import { PhotoGrid } from '@/photos/PhotoGrid';
 import { formatCoordinates } from '@/sheet/coordinates';
 import { colors, layout, radius, space, text } from '@/theme/tokens';
 
@@ -53,11 +69,13 @@ const formatVisitDate = (visitDate: string) => {
 
 export function NoteScreen({ place, name, country, lon, lat }: Props) {
   const insets = useSafeAreaInsets();
-  const { journal, writeNote, addTodo, checkTodo, moveTodo, deleteTodo } = useJournal();
+  const { journal, writeNote, addTodo, checkTodo, moveTodo, deleteTodo, addPhotos } = useJournal();
   const { show } = useShowOnGlobe();
   const scroll = useRef<ScrollView>(null);
   const record = journal.place(place);
   const todos = journal.todos(place);
+  const photos = journal.photos(place);
+  const cover = journal.coverPhoto(place);
 
   // Typed into here, and written to the Journal when the typing pauses or the screen closes.
   const [note, setNote] = useState(record?.note ?? '');
@@ -93,6 +111,27 @@ export function NoteScreen({ place, name, country, lon, lat }: Props) {
     setDraft('');
   };
 
+  /** While the images picked are copied into the app; and what went wrong last, if anything. */
+  const [adding, setAdding] = useState(false);
+  const [problem, setProblem] = useState<'camera' | 'copy' | null>(null);
+  const add = async (pick: () => Promise<string[] | null>) => {
+    setProblem(null);
+    const sources = await pick();
+    if (sources === null) {
+      setProblem('camera');
+      return;
+    }
+    if (sources.length === 0) return;
+    setAdding(true);
+    try {
+      await addPhotos(place, sources);
+    } catch {
+      setProblem('copy');
+    } finally {
+      setAdding(false);
+    }
+  };
+
   const showOnGlobe = () => {
     show(place);
     router.dismissTo('/');
@@ -123,6 +162,16 @@ export function NoteScreen({ place, name, country, lon, lat }: Props) {
             <Text style={styles.locationText}>{visitDate ? `${formatVisitDate(visitDate)} · ${where}` : where}</Text>
           </Pressable>
         </View>
+
+        {cover && (
+          <Pressable
+            accessibilityRole="imagebutton"
+            accessibilityLabel="Cover photo"
+            onPress={() => openPhoto(place, cover)}
+            style={styles.cover}>
+            <Image source={{ uri: photoUri(cover.file) }} style={StyleSheet.absoluteFill} />
+          </Pressable>
+        )}
 
         <View style={styles.field}>
           <Text style={styles.label}>Note</Text>
@@ -165,6 +214,29 @@ export function NoteScreen({ place, name, country, lon, lat }: Props) {
               style={styles.addInput}
             />
           </View>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Photos</Text>
+          <PhotoGrid photos={photos} onOpen={(photo) => openPhoto(place, photo)} />
+          <View style={styles.photoActions}>
+            <Button variant="ghost" size="sm" icon={ImagePlus} disabled={adding} onPress={() => add(pickFromLibrary)}>
+              Ajouter des photos
+            </Button>
+            <Button variant="ghost" size="sm" icon={Camera} disabled={adding} onPress={() => add(takePhoto)}>
+              Appareil photo
+            </Button>
+            {adding && <ActivityIndicator color={colors.textMuted} />}
+          </View>
+          {problem === 'camera' && (
+            <Text style={styles.problem}>
+              L’appareil photo est désactivé pour Globe trotter.{' '}
+              <Text style={styles.problemLink} onPress={() => Linking.openSettings()}>
+                Activez-le dans Réglages.
+              </Text>
+            </Text>
+          )}
+          {problem === 'copy' && <Text style={styles.problem}>Impossible d’ajouter ces photos. Réessayez.</Text>}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -237,6 +309,26 @@ const styles = StyleSheet.create({
     borderWidth: layout.borderWidth,
     borderColor: colors.borderStrong,
     borderRadius: radius.md,
+  },
+  // 4:3, as the design system's Note shows its Photo.
+  cover: {
+    aspectRatio: 4 / 3,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    backgroundColor: colors.paper2,
+  },
+  photoActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginLeft: -14,
+  },
+  problem: {
+    ...text.caption,
+    color: colors.feedbackDanger,
+  },
+  problemLink: {
+    textDecorationLine: 'underline',
   },
   addRow: {
     flexDirection: 'row',
