@@ -349,6 +349,7 @@ export default function GlobeScreen() {
           screenHeight={screenHeight}
           place={place}
           onClose={onClose}
+          onBack={() => globe.current?.backToCountry()}
           onMark={onMark}
           onVisitDate={(visitDate) => sheetRef && setVisitDate(sheetRef, visitDate)}
           onOpenNote={onOpenNote}

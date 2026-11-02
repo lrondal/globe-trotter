@@ -6,6 +6,7 @@ import {
   BookmarkMinus,
   CalendarDays,
   Check,
+  ChevronLeft,
   ChevronRight,
   Move,
   NotebookPen,
@@ -53,7 +54,7 @@ import { formatVisitDates } from "./visitDate";
 
 export type SheetPlace = SheetIdentity & {
   name: string;
-  /** Shown above the name: a Region's Country. */
+  /** Shown above the name: a Region's Country, which a Region's sheet goes back to. */
   overline?: string;
   lon: number;
   lat: number;
@@ -83,6 +84,8 @@ type Props = {
   /** The Place shown; null while the sheet closes. */
   place: SheetPlace | null;
   onClose: () => void;
+  /** « ‹ Country », on a Region: back to its Country. */
+  onBack: () => void;
   /** Sets the Mark of the Place shown; null is Retirer. */
   onMark: (mark: Mark | null) => void;
   /** A Visit date picked for the Place shown, YYYY-MM. */
@@ -125,6 +128,7 @@ export function PlaceSheet({
   screenHeight,
   place,
   onClose,
+  onBack,
   onMark,
   onVisitDate,
   onOpenNote,
@@ -202,9 +206,27 @@ export function PlaceSheet({
           {shown && (
             <View style={styles.header}>
               <Animated.View style={[styles.titles, fade]}>
-                {shown.overline && (
-                  <Text style={styles.overline}>{shown.overline}</Text>
-                )}
+                {shown.overline &&
+                  (shown.ref.level === "region" ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Revenir à ${shown.overline}`}
+                      onPress={onBack}
+                      style={({ pressed }) => [
+                        styles.back,
+                        pressed && { backgroundColor: colors.paper2 },
+                      ]}
+                    >
+                      <ChevronLeft
+                        color={colors.textMuted}
+                        size={14}
+                        strokeWidth={2}
+                      />
+                      <Text style={styles.overline}>{shown.overline}</Text>
+                    </Pressable>
+                  ) : (
+                    <Text style={styles.overline}>{shown.overline}</Text>
+                  ))}
                 <Text style={styles.title} numberOfLines={2}>
                   {shown.name}
                 </Text>
@@ -452,6 +474,19 @@ const styles = StyleSheet.create({
   titles: {
     flex: 1,
     gap: space[3],
+  },
+  // The overline as a button: 44 pt tall to the finger, laid out as tall as the overline.
+  back: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 2,
+    minHeight: layout.hitMin,
+    marginVertical: -(layout.hitMin - text.overline.lineHeight) / 2,
+    paddingLeft: space[2],
+    paddingRight: space[3],
+    marginLeft: -space[2],
+    borderRadius: radius.pill,
   },
   // 11 pt, uppercase, +0.08 em.
   overline: {

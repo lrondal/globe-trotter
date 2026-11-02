@@ -8,7 +8,8 @@
 //
 // The selected Country's Regions are handed over by the parent once loaded, and fade in over
 // it while it fades to its tint: the flight never waits for them. A tap on one of them flies
-// to it, and its outline darkens while the one left fades back. The Journal's Cities are
+// to it, and its outline darkens while the one left fades back; tapped again, or « ‹ Country »
+// in the sheet, the globe flies back to the Country, its Regions staying. The Journal's Cities are
 // ink dots, drawn over everything but the rim. A long press tells the parent the point of
 // the globe under the finger, where a Custom City goes.
 import { Canvas, Circle, Group, notifyChange, Path, Skia, usePathValue } from '@shopify/react-native-skia';
@@ -127,6 +128,11 @@ export type GlobeHandle = {
    * Country while its Regions load, then towards the Region once they are there.
    */
   selectRegion(country: number, region: number): void;
+  /**
+   * From the selected Region, flies back to its Country, framed as when it was selected, and
+   * tells onSelect the Country; the Regions stay, and the sheet at its height.
+   */
+  backToCountry(): void;
   /** Lets go of the selected Country: closes the sheet and lowers the globe back. */
   deselect(): void;
 };
@@ -226,8 +232,8 @@ export const Globe = memo(function Globe({
     return frameFor(view(), viewport.value, lift.value);
   };
 
-  // Flies to frame a Place above the sheet, opened to half height.
-  const flyOver = (footprint: Footprint) => {
+  // Flies to frame a Place above the sheet, opened to half height unless it stays where it is.
+  const flyOver = (footprint: Footprint, sheetStays = false) => {
     'worklet';
     const screenHeight = viewport.value.height;
     const half = detentHeight('half', screenHeight);
@@ -237,7 +243,7 @@ export const Globe = memo(function Globe({
     cancelAnimation(zoom);
     cancelAnimation(lift);
     flight.value = { from: { view: view(), lift: lift.value }, to, elapsed: 0 };
-    sheetHeight.value = withTiming(half, sheetTiming);
+    if (!sheetStays) sheetHeight.value = withTiming(half, sheetTiming);
   };
   // The outline of the Region selected darkens, while the one before it fades back.
   const emphasize = (region: number) => {
@@ -296,6 +302,17 @@ export const Globe = memo(function Globe({
     flyOver(footprintOf(shown.geometry, region));
     scheduleOnRN(onSelectRegion, region);
   };
+  // Back from the selected Region to its Country, whose Regions stay: its outline fades back.
+  const backToCountry = () => {
+    'worklet';
+    const country = selectedCountry.value;
+    // Pressed again while the Region fades out of the sheet, it is already on its way.
+    if (country < 0 || selectedRegion.value < 0) return;
+    awaitedRegion.value = -1;
+    emphasize(-1);
+    flyOver(footprintOf(countryGeometry, country), true);
+    scheduleOnRN(onSelect, country);
+  };
   // A Region asked for, whose Regions may not be loaded yet: framed by its Country meanwhile.
   const selectRegion = (country: number, region: number) => {
     'worklet';
@@ -322,6 +339,7 @@ export const Globe = memo(function Globe({
     () => ({
       select: (country, footprint) => scheduleOnUI(select, country, footprint),
       selectRegion: (country, region) => scheduleOnUI(selectRegion, country, region),
+      backToCountry: () => scheduleOnUI(backToCountry),
       deselect: () => scheduleOnUI(deselect),
     }),
     [],
@@ -458,10 +476,15 @@ export const Globe = memo(function Globe({
       if (!success) return;
       const f = frame();
       const country = countryAt(countryGeometry, f, detailArea, e.x, e.y);
-      // Inside the selected Country, once its Regions show, a tap picks one of them.
+      // Inside the selected Country, once its Regions show, a tap picks one of them; the one
+      // selected, tapped again, goes back to the Country.
       const shown = regions.value;
       if (country >= 0 && country === selectedCountry.value && shown?.country === country && fade.value > REGIONS_TAPPABLE) {
         const region = countryAt(shown.geometry, f, detailArea, e.x, e.y);
+        if (region >= 0 && region === selectedRegion.value) {
+          backToCountry();
+          return;
+        }
         if (region >= 0) {
           flyToRegion(shown, region);
           return;
