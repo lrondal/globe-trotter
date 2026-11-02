@@ -152,7 +152,7 @@ export default function GlobeScreen() {
     const own = sheetRef.level === 'region' ? atlas.region(sheetRef.id) : city && (journal.city(city.id) ?? city);
     const { lon, lat } = own ?? footprintOf(countryGeometry, selected);
     return {
-      id: `${sheetRef.level}:${sheetRef.id}`,
+      ref: sheetRef,
       country: selected,
       name: own?.name ?? countries[selected].name,
       overline: own ? countries[selected].name : undefined,

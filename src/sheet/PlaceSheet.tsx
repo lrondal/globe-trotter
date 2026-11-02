@@ -21,10 +21,10 @@ import type { Mark, Status } from '@/journal/journal';
 import { colors, duration, easing, fonts, layout, radius, shadow, space, text } from '@/theme/tokens';
 
 import { formatCoordinates } from './coordinates';
-import { sheetChange, type Shown } from './crossfade';
+import { sheetChange, type SheetIdentity } from './crossfade';
 import { detentHeight, restingDetent, sheetTiming } from './detents';
 
-export type SheetPlace = Shown & {
+export type SheetPlace = SheetIdentity & {
   name: string;
   /** Shown above the name: a Region's Country. */
   overline?: string;
@@ -70,8 +70,9 @@ const EXCERPT_LINES = 3;
 const VIA_NAMES = 3;
 
 /** The content fades out quickly, then the next Place fades in. */
-const fadeOut = { duration: duration.fast, easing: Easing.bezier(...easing.out) };
-const fadeIn = { duration: duration.base, easing: Easing.bezier(...easing.out) };
+const fadeEasing = Easing.bezier(...easing.out);
+const fadeOut = { duration: duration.fast, easing: fadeEasing };
+const fadeIn = { duration: duration.base, easing: fadeEasing };
 
 /** The status dot of a row: an unexplored one is hollow. */
 const DOT: Record<Status, object> = {
@@ -87,11 +88,12 @@ const formatVia = (names: string[]) =>
 export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpenNote, onOpenCity, onRename, onMove }: Props) {
   // The last Place stays on the sheet while it slides away, or while it fades out.
   const [shown, setShown] = useState(place);
-  const [last, setLast] = useState(place);
+  /** The `place` of the last render. */
+  const [previous, setPrevious] = useState(place);
   const [fading, setFading] = useState(false);
-  if (place !== last) {
-    setLast(place);
-    const change = sheetChange(last, place);
+  if (place !== previous) {
+    setPrevious(place);
+    const change = sheetChange(previous, place);
     // Fading out, the next Place waits for the content to be gone, whatever it is.
     if (change === 'swap' || (change === 'update' && !fading)) {
       setShown(place);
@@ -102,8 +104,10 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
   useEffect(() => {
     latest.current = place;
   }, [place]);
+  // Closed while fading out, the sheet slides away empty: the next one opening shows its Place.
   const reveal = useCallback(() => {
-    if (latest.current) setShown(latest.current);
+    if (!latest.current) return;
+    setShown(latest.current);
     setFading(false);
   }, []);
   const opacity = useSharedValue(1);
@@ -163,7 +167,8 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
         </View>
       </GestureDetector>
       {shown && (
-        <Animated.View style={[styles.content, fade]}>
+        // Fading out, its buttons would act on the next Place already.
+        <Animated.View style={[styles.content, fade]} pointerEvents={fading ? 'none' : 'auto'}>
           <ScrollView contentContainerStyle={styles.body}>
             <MarkActions status={shown.status} canRemove={shown.canRemove} feminine={shown.feminine} onMark={onMark} />
             {shown.note !== '' && (
