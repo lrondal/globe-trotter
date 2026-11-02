@@ -4,7 +4,7 @@ import { Linking, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { atlas, cityPlace, containerOf, listedCity, countries, countryGeometry, footprintOf, places, type Footprint } from '@/atlas';
+import { atlas, cityPlace, listedCity, countries, countryGeometry, footprintOf, places, type Footprint } from '@/atlas';
 import { Button } from '@/components/Button';
 import { FilterChip } from '@/components/FilterChip';
 import { NameDialog } from '@/components/NameDialog';
@@ -179,6 +179,16 @@ export default function GlobeScreen() {
     asked.current = { country, city: target };
     globe.current?.select(country, cityFootprint(target));
   }, []);
+  /** Flies to a Region, framed on its own outline, and opens its sheet. */
+  const selectRegion = useCallback((id: string) => {
+    const target = atlas.region(id);
+    if (!target) return;
+    const country = indexOf(target.countryId);
+    const index = atlas.regionsOf(target.countryId).findIndex((r) => r.id === id);
+    if (country < 0 || index < 0) return;
+    asked.current = { country, region: id };
+    globe.current?.selectRegion(country, index);
+  }, []);
   /** A City by id: the Journal's, or else the list's (loaded by the search that found it). */
   const findCity = useCallback((id: string) => journal.city(id) ?? listedCity(id), [journal]);
 
@@ -189,14 +199,14 @@ export default function GlobeScreen() {
     if (pending.level === 'city') {
       const target = findCity(pending.id);
       if (target) selectCity(target);
+    } else if (pending.level === 'region') {
+      selectRegion(pending.id);
     } else {
-      // A Region is shown by its Country.
-      const target = pending.level === 'region' ? containerOf(pending) : pending;
-      const index = places.findIndex((p) => p.level === target?.level && p.id === target.id);
+      const index = places.findIndex((p) => p.level === pending.level && p.id === pending.id);
       if (index >= 0) globe.current?.select(index);
     }
     shown();
-  }, [pending, shown, findCity, selectCity]);
+  }, [pending, shown, findCity, selectCity, selectRegion]);
 
   // A result of « Rechercher un lieu »: the globe flies there and selects it.
   const onPick = (picked: Picked) => {
@@ -205,12 +215,9 @@ export default function GlobeScreen() {
       case 'island':
         globe.current?.select(indexOf(picked.place.id));
         return;
-      case 'region': {
-        const country = indexOf(picked.place.countryId);
-        asked.current = { country, region: picked.place.id };
-        globe.current?.select(country);
+      case 'region':
+        selectRegion(picked.place.id);
         return;
-      }
       case 'city':
         selectCity(journal.city(picked.place.id) ?? cityPlace(picked.place));
     }

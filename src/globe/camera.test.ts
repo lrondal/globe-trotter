@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 
 import {
   centerOn,
@@ -10,6 +11,7 @@ import {
   fly,
   holdZoom,
   MAX_ZOOM,
+  MIN_ZOOM,
   pinch,
   release,
   zoomIn,
@@ -18,6 +20,8 @@ import {
   type Spin,
   type View,
 } from './camera.ts';
+import { footprintOf } from '../atlas/countries.ts';
+import { decodeRegions, type RegionGeometry } from '../atlas/regions.ts';
 import { frameFor, globeCenterY, TOP_BAND } from './projection.ts';
 
 // A 402 pt wide iPhone: the globe's radius at zoom 1 is 0.49 × 402.
@@ -236,6 +240,61 @@ test('a Place beyond the 60° tilt limit is still framed above the sheet', () =>
 test('framing never zooms out past 0.8× nor in past 2000×', () => {
   assert.equal(fit({ lon: 100, lat: 60, width: 3, height: 3 }, screen, SHEET_TOP).view.zoom, 0.8);
   assert.equal(fit({ lon: 7.4, lat: 43.7, width: 1e-5, height: 1e-5 }, screen, SHEET_TOP).view.zoom, 2000);
+});
+
+/** Every Region the app ships, with the outlines of its Country's Regions. */
+const REGIONS_DIR = new URL('../../assets/regions/', import.meta.url);
+const shippedRegions = readdirSync(REGIONS_DIR).flatMap((file) => {
+  const own: RegionGeometry = decodeRegions(JSON.parse(readFileSync(new URL(file, REGIONS_DIR), 'utf8')));
+  return own.regions.map(({ name }, index) => ({ name, index, geometry: own.geometry }));
+});
+
+/** The on-screen bounds of the largest ring of Region `index` for a Shot, by its area on screen. */
+function largestRingOnScreen(shot: Shot, { xyz, ringStart, ringCountry }: RegionGeometry['geometry'], index: number) {
+  const f = frameFor(shot.view, screen, shot.lift);
+  let largest = { area: -1, left: 0, right: 0, top: 0, bottom: 0 };
+  for (let r = 0; r < ringCountry.length; r++) {
+    if (ringCountry[r] !== index) continue;
+    const ring = { area: 0, left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+    const at = (i: number) => ({
+      x: f.cx + f.s * (xyz[3 * i] * f.ex + xyz[3 * i + 1] * f.ey + xyz[3 * i + 2] * f.ez),
+      y: f.cy - f.s * (xyz[3 * i] * f.nx + xyz[3 * i + 1] * f.ny + xyz[3 * i + 2] * f.nz),
+    });
+    let previous = at(ringStart[r + 1] - 1);
+    for (let i = ringStart[r]; i < ringStart[r + 1]; i++) {
+      const p = at(i);
+      ring.area += (previous.x * p.y - p.x * previous.y) / 2;
+      ring.left = Math.min(ring.left, p.x);
+      ring.right = Math.max(ring.right, p.x);
+      ring.top = Math.min(ring.top, p.y);
+      ring.bottom = Math.max(ring.bottom, p.y);
+      previous = p;
+    }
+    ring.area = Math.abs(ring.area);
+    if (ring.area > largest.area) largest = ring;
+  }
+  return largest;
+}
+
+test('framing any Region shows the whole of its largest part in the band above the half-open sheet', () => {
+  for (const { name, index, geometry } of shippedRegions) {
+    const shot = fit(footprintOf(geometry, index), screen, SHEET_TOP);
+    const { left, right, top, bottom } = largestRingOnScreen(shot, geometry, index);
+    assert.ok(
+      left >= 0 && right <= screen.width && top >= TOP_BAND && bottom <= SHEET_TOP,
+      `${name}: x ${left} to ${right}, y ${top} to ${bottom}`,
+    );
+  }
+});
+
+test('framing a Region stays within the zoom bounds, the smallest at the deepest zoom', () => {
+  for (const { name, index, geometry } of shippedRegions) {
+    const { zoom } = fit(footprintOf(geometry, index), screen, SHEET_TOP).view;
+    assert.ok(zoom >= MIN_ZOOM && zoom <= MAX_ZOOM, `${name} at ${zoom}×`);
+  }
+  // Mont Buxton, on Mahé in the Seychelles, about 1.5 km across: "Mont Buxto" in geoBoundaries.
+  const buxton = shippedRegions.find((r) => r.name === 'Mont Buxto')!;
+  assert.equal(fit(footprintOf(buxton.geometry, buxton.index), screen, SHEET_TOP).view.zoom, MAX_ZOOM);
 });
 
 /** Flies from one Shot to another at 60 fps; returns every Shot drawn and the time taken. */
