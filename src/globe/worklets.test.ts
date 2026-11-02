@@ -33,15 +33,15 @@ function misusedCaptures(file: string): string[] {
   });
   const found: string[] = [];
   babel.traverse(ast, {
-    // The plugin turns each worklet into `factory({ ...captured })`.
+    // The plugin turns each worklet into `factory([initData, ...captured])`.
     CallExpression(path: any) {
       const factory = path.node.callee;
       if (factory.type !== 'FunctionExpression' || !factory.id?.name.endsWith('Factory')) return;
       const statement = path.getStatementParent();
       const worklet = factory.id.name.replace(/_\w+Factory$/, '');
       const captured = new Set<string>();
-      for (const property of path.node.arguments[0]?.properties ?? []) {
-        const name: string | undefined = property.key?.name;
+      for (const element of path.node.arguments[0]?.elements ?? []) {
+        const name: string | undefined = element?.name;
         if (!name || name.startsWith('_')) continue;
         captured.add(name);
         const binding = path.scope.getBinding(name);

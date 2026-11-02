@@ -4,7 +4,8 @@ import { router } from 'expo-router';
 import { ChevronLeft, MapPin, Plus } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { AppState, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { ScrollView } from 'react-native-gesture-handler';
+// The legacy one: TodoList's drag blocks it, a relation the hook-based ScrollView of v3 cannot take.
+import { LegacyScrollView as ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '@/components/IconButton';
