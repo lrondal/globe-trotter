@@ -45,7 +45,14 @@
         }
       ],
       "expo-sqlite",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Globe trotter ouvre votre pellicule pour ajouter des photos à vos lieux. Elles sont copiées dans l’app.",
+          "cameraPermission": "Globe trotter utilise l’appareil photo pour ajouter une photo à un lieu. Elle reste dans l’app."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

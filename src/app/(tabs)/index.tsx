@@ -4,7 +4,18 @@ import { Linking, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { atlas, cityPlace, listedCity, countries, countryGeometry, footprintOf, places, type Footprint } from '@/atlas';
+import {
+  anchorOf,
+  atlas,
+  cityPlace,
+  listedCity,
+  countries,
+  countryGeometry,
+  footprintOf,
+  placeIndex as indexOf,
+  places,
+  type Footprint,
+} from '@/atlas';
 import { Button } from '@/components/Button';
 import { FilterChip } from '@/components/FilterChip';
 import { NameDialog } from '@/components/NameDialog';
@@ -14,12 +25,14 @@ import type { Point } from '@/globe/camera';
 import { Globe, type GlobeHandle, type RegionLayers, type ShownRegions } from '@/globe/Globe';
 import { layerOf, type Filters } from '@/globe/layers';
 import { useShowOnGlobe } from '@/globe/ShowOnGlobeProvider';
+import { useGlobeThumbnails, type RegionAnchors } from '@/globe/useGlobeThumbnails';
 import type { City, Journal, Mark, PlaceRef, Status } from '@/journal/journal';
 import { useJournal } from '@/journal/JournalProvider';
 import { recenterAction } from '@/location/launch';
 import { useLocation } from '@/location/LocationProvider';
 import { SearchBar, type Picked } from '@/search/SearchBar';
 import { detentHeight } from '@/sheet/detents';
+import { openPhoto } from '@/photos/openPhoto';
 import { PlaceSheet, type SheetPlace } from '@/sheet/PlaceSheet';
 import { colors, layout, radius, shadow, text } from '@/theme/tokens';
 
@@ -69,8 +82,14 @@ const nameOf = (journal: Journal, place: PlaceRef) => {
   return place.level === 'region' ? (atlas.region(place.id)?.name ?? '') : (countries.find((c) => c.id === place.id)?.name ?? '');
 };
 
-/** Index in the Atlas of a Country or Island, by id. */
-const indexOf = (id: string) => countries.findIndex((c) => c.id === id);
+/** The heading of the Photos of the Places inside a Place, in its sheet. */
+const INSIDE_LABEL: Record<PlaceRef['level'], string> = {
+  country: 'Dans ce pays',
+  island: 'Dans cette île',
+  region: 'Dans cette région',
+  city: '',
+};
+
 
 /**
  * What the globe frames for a City: a square of 0.015 globe radii, about 100 km, a city and
@@ -78,8 +97,8 @@ const indexOf = (id: string) => countries.findIndex((c) => c.id === id);
  */
 const cityFootprint = ({ lon, lat }: City): Footprint => ({ lon, lat, width: 0.015, height: 0.015 });
 
-/** The points of the Journal's Cities, for the globe. */
-const cityPoints = (journal: Journal) => journal.cities().map(({ lon, lat }) => ({ lon, lat }));
+/** The Journal's Cities, for the globe. */
+const cityPoints = (journal: Journal) => journal.cities().map(({ id, lon, lat }) => ({ id, lon, lat }));
 
 export default function GlobeScreen() {
   const { launch, position, permission, request, locate } = useLocation();
@@ -91,6 +110,8 @@ export default function GlobeScreen() {
   const [selected, setSelected] = useState<number | null>(null);
   /** The Regions of the selected Country, once loaded. */
   const [regions, setRegions] = useState<Regions | null>(null);
+  /** Where their Photo thumbnails sit. */
+  const [regionAnchors, setRegionAnchors] = useState<RegionAnchors | null>(null);
   const shownList = useRef<Regions | null>(null);
   useEffect(() => {
     shownList.current = regions;
@@ -118,6 +139,7 @@ export default function GlobeScreen() {
   useEffect(() => {
     cities.value = cityPoints(journal);
   }, [cities, journal, version]);
+  const thumbnails = useGlobeThumbnails(journal, version, regionAnchors);
   const counts = journal.counts();
   // The selected Country's Regions, loaded and decoded on the JS thread while the globe flies
   // on the UI thread, then handed to it with their colours.
@@ -130,6 +152,10 @@ export default function GlobeScreen() {
       if (!current || !loaded) return;
       shownRegions.value = { country: selected, geometry: loaded.geometry };
       setRegions({ country: selected, list: loaded.regions });
+      setRegionAnchors({
+        country: selected,
+        anchors: loaded.regions.map(({ id }, r) => ({ id, ...anchorOf(loaded.geometry, r) })),
+      });
     });
     return () => {
       current = false;
@@ -165,9 +191,16 @@ export default function GlobeScreen() {
       canRemove: journal.canRemoveMark(sheetRef),
       feminine: sheetRef.level === 'region' || sheetRef.level === 'city',
       note: journal.place(sheetRef)?.note ?? '',
-      cities: journal
-        .citiesIn(sheetRef)
-        .map(({ id, name }) => ({ id, name, status: journal.status({ level: 'city', id }) })),
+      cities: journal.citiesIn(sheetRef).map(({ id, name }) => ({
+        id,
+        name,
+        status: journal.status({ level: 'city', id }),
+        thumbnail: journal.coverPhoto({ level: 'city', id })?.thumbnail ?? null,
+      })),
+      cover: journal.coverPhoto(sheetRef),
+      photos: journal.photos(sheetRef),
+      photosInside: journal.photosInside(sheetRef),
+      insideLabel: INSIDE_LABEL[sheetRef.level],
       custom: journal.city(sheetRef.id)?.custom === true,
     };
   }, [selected, sheetRef, city, journal, version]);
@@ -222,10 +255,14 @@ export default function GlobeScreen() {
         selectCity(journal.city(picked.place.id) ?? cityPlace(picked.place));
     }
   };
-  const onOpenCity = (id: string) => {
-    const target = journal.city(id);
-    if (target) selectCity(target);
-  };
+  /** A City of the Journal: from the list « Villes », or its dot or thumbnail tapped on the globe. */
+  const onOpenCity = useCallback(
+    (id: string) => {
+      const target = journal.city(id);
+      if (target) selectCity(target);
+    },
+    [journal, selectCity],
+  );
 
   const onOpenNote = () => {
     if (!sheetRef) return;
@@ -341,6 +378,8 @@ export default function GlobeScreen() {
         regionLayers={regionLayers}
         onSelectRegion={onSelectRegion}
         cities={cities}
+        onSelectCity={onOpenCity}
+        thumbnails={thumbnails}
         onLongPress={onLongPress}
       />
       {screenHeight > 0 && (
@@ -354,6 +393,7 @@ export default function GlobeScreen() {
           onVisitDate={(visitDate) => sheetRef && setVisitDate(sheetRef, visitDate)}
           onOpenNote={onOpenNote}
           onOpenCity={onOpenCity}
+          onOpenPhoto={(photo) => sheetRef && openPhoto(sheetRef, photo)}
           onRename={() => city && setNaming({ city: journal.city(city.id) ?? city })}
           onMove={onMove}
         />

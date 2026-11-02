@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import {
   Gesture,
   GestureDetector,
@@ -33,7 +33,9 @@ import { scheduleOnRN } from "react-native-worklets";
 import { Button } from "@/components/Button";
 import { MonthDialog } from "@/components/MonthDialog";
 import { STATUS_LABEL, StatusBadge } from "@/components/StatusBadge";
-import type { Mark, Status } from "@/journal/journal";
+import { photoUri } from "@/journal/devicePhotoFiles";
+import type { Mark, Photo, Status } from "@/journal/journal";
+import { PhotoGrid } from "@/photos/PhotoGrid";
 import { monthOf, type VisitDates } from "@/journal/visitDate";
 import {
   colors,
@@ -71,8 +73,16 @@ export type SheetPlace = SheetIdentity & {
   feminine?: boolean;
   /** The Place's Note, of which the sheet shows the start; empty when it has none. */
   note: string;
-  /** The Journal's Cities inside it, listed under « Villes ». */
-  cities: { id: string; name: string; status: Status }[];
+  /** The Journal's Cities inside it, listed under « Villes », with their Cover photo's thumbnail. */
+  cities: { id: string; name: string; status: Status; thumbnail: string | null }[];
+  /** Its Cover photo, shown at the top; null when it has no Photos, nor the Places inside it. */
+  cover: Photo | null;
+  /** Its own Photos, in the order they were added. */
+  photos: readonly Photo[];
+  /** Those of the Places inside it, shown apart, read-only. */
+  photosInside: readonly Photo[];
+  /** The heading of those: « Dans ce pays », say. */
+  insideLabel: string;
   /** A Custom City, which offers « Renommer » and « Déplacer ». */
   custom?: boolean;
 };
@@ -94,6 +104,8 @@ type Props = {
   onOpenNote: () => void;
   /** A City of the list « Villes » tapped. */
   onOpenCity: (id: string) => void;
+  /** A Photo tapped, its own or one inside it, to open full screen. */
+  onOpenPhoto: (photo: Photo) => void;
   /** « Renommer », on a Custom City. */
   onRename: () => void;
   /** « Déplacer », on a Custom City. */
@@ -133,6 +145,7 @@ export function PlaceSheet({
   onVisitDate,
   onOpenNote,
   onOpenCity,
+  onOpenPhoto,
   onRename,
   onMove,
 }: Props) {
@@ -268,6 +281,19 @@ export function PlaceSheet({
           pointerEvents={fading ? "none" : "auto"}
         >
           <ScrollView contentContainerStyle={styles.body}>
+            {shown.cover && (
+              <Pressable
+                accessibilityRole="imagebutton"
+                accessibilityLabel="Cover photo"
+                onPress={() => shown.cover && onOpenPhoto(shown.cover)}
+                style={styles.cover}
+              >
+                <Image
+                  source={{ uri: photoUri(shown.cover.file) }}
+                  style={StyleSheet.absoluteFill}
+                />
+              </Pressable>
+            )}
             <MarkActions
               status={shown.status}
               canRemove={shown.canRemove}
@@ -311,6 +337,18 @@ export function PlaceSheet({
                 </Button>
               </View>
             )}
+            {shown.photos.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.overline}>Photos</Text>
+                <PhotoGrid photos={shown.photos} onOpen={onOpenPhoto} />
+              </View>
+            )}
+            {shown.photosInside.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.overline}>{shown.insideLabel}</Text>
+                <PhotoGrid photos={shown.photosInside} onOpen={onOpenPhoto} />
+              </View>
+            )}
             {shown.cities.length > 0 && (
               <View>
                 <Text style={styles.overline}>Villes</Text>
@@ -325,6 +363,14 @@ export function PlaceSheet({
                       pressed && { backgroundColor: colors.paper2 },
                     ]}
                   >
+                    <View style={styles.cityThumbnail}>
+                      {city.thumbnail && (
+                        <Image
+                          source={{ uri: photoUri(city.thumbnail) }}
+                          style={StyleSheet.absoluteFill}
+                        />
+                      )}
+                    </View>
                     <View style={styles.cityText}>
                       <Text style={styles.cityName} numberOfLines={1}>
                         {city.name}
@@ -523,7 +569,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: layout.screenGutter,
     paddingBottom: space[8],
   },
-  // The design system's PlaceRow, without a thumbnail until Photos come (#12).
+  // 16:10, 6 pt corners.
+  cover: {
+    aspectRatio: 16 / 10,
+    borderRadius: radius.md,
+    overflow: "hidden",
+    backgroundColor: colors.paper2,
+  },
+  section: {
+    gap: space[3],
+  },
+  // The design system's PlaceRow.
   cityRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -535,6 +591,14 @@ const styles = StyleSheet.create({
   },
   lastRow: {
     borderBottomWidth: 0,
+  },
+  // 44 pt square, 4 pt corners; the hatched placeholder's paper until the City has Photos.
+  cityThumbnail: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.sm,
+    overflow: "hidden",
+    backgroundColor: colors.paper2,
   },
   cityText: {
     flex: 1,

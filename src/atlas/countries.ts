@@ -17,7 +17,14 @@ export type Footprint = { lon: number; lat: number; width: number; height: numbe
  * convention: `~i` walks arc `i` backwards). Arcs are shared between neighbours, so
  * shared borders stay identical at every level of detail.
  */
-export type CountryData = CountryRecord & { polygons: number[][][] };
+export type CountryData = CountryRecord & {
+  polygons: number[][][];
+  /**
+   * Where its Photo thumbnail sits, [lon, lat] in degrees: the pole of inaccessibility of its
+   * largest polygon (scripts/anchor.ts). Without one, the centre of its Footprint.
+   */
+  anchor?: [number, number];
+};
 
 /**
  * Each arc is a flat list of points `lon, lat, level`. lon and lat are in 1e-4 degrees, the
@@ -48,7 +55,15 @@ export type CountryGeometry = {
   maxRing: number;
   /** Per Country: the Footprint of its largest polygon, as lon, lat, width, height. */
   footprints: Float64Array;
+  /** Per Country: where its Photo thumbnail sits (see CountryData), as lon, lat. */
+  anchors: Float64Array;
 };
+
+/** Where the Photo thumbnail of Country `c` sits on the globe. */
+export function anchorOf(geometry: CountryGeometry, c: number): { lon: number; lat: number } {
+  'worklet';
+  return { lon: geometry.anchors[2 * c], lat: geometry.anchors[2 * c + 1] };
+}
 
 /** The Footprint of Country `c`, the one the globe frames when it is selected. */
 export function footprintOf(geometry: CountryGeometry, c: number): Footprint {
@@ -138,6 +153,7 @@ export function decodeCountries(data: CountriesData): {
     const lat = (Math.asin(Math.max(-1, Math.min(1, centre[2]))) * 180) / Math.PI;
     footprints.set([lon, lat, 2 * extent.u, 2 * extent.v], 4 * c);
   });
+  const anchors = new Float64Array(data.countries.flatMap(({ anchor }, c) => anchor ?? [footprints[4 * c], footprints[4 * c + 1]]));
 
   return {
     countries: data.countries.map(({ id, name, countryId }) => (countryId ? { id, name, countryId } : { id, name })),
@@ -149,6 +165,7 @@ export function decodeCountries(data: CountriesData): {
       ringCountry: new Int32Array(ringCountry),
       maxRing,
       footprints,
+      anchors,
     },
   };
 }
