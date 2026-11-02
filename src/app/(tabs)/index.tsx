@@ -83,7 +83,7 @@ const cityPoints = (journal: Journal) => journal.cities().map(({ lon, lat }) => 
 
 export default function GlobeScreen() {
   const { launch, position, permission, request, locate } = useLocation();
-  const { journal, version, mark, undo, createCity, renameCity, moveCity } = useJournal();
+  const { journal, version, mark, undo, setVisitDate, createCity, renameCity, moveCity } = useJournal();
   const insets = useSafeAreaInsets();
   const globe = useRef<GlobeHandle>(null);
   const sheetHeight = useSharedValue(0);
@@ -160,6 +160,8 @@ export default function GlobeScreen() {
       lat,
       status: journal.status(sheetRef),
       via: journal.via(sheetRef).map((p) => nameOf(journal, p)),
+      visitDates: journal.visitDates(sheetRef),
+      ownVisitDate: journal.place(sheetRef)?.visitDate ?? null,
       canRemove: journal.canRemoveMark(sheetRef),
       feminine: sheetRef.level === 'region' || sheetRef.level === 'city',
       note: journal.place(sheetRef)?.note ?? '',
@@ -341,6 +343,7 @@ export default function GlobeScreen() {
           place={place}
           onClose={onClose}
           onMark={onMark}
+          onVisitDate={(visitDate) => sheetRef && setVisitDate(sheetRef, visitDate)}
           onOpenNote={onOpenNote}
           onOpenCity={onOpenCity}
           onRename={() => city && setNaming({ city: journal.city(city.id) ?? city })}

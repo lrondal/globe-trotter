@@ -475,3 +475,70 @@ test('a City of the list can be neither renamed nor moved', async () => {
   await assert.rejects(j.moveCity(kyoto.id, { lon: 139.2, lat: 35.6 }));
   assert.deepEqual(j.city(kyoto.id), kyoto);
 });
+
+test('the Visit date of a Visited Place can be set back to an earlier trip, and survives reopening the app', () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas, now: () => new Date(2026, 9, 18) });
+  j.mark(france, 'visited');
+  j.setVisitDate(france, '2019-07');
+  assert.equal(j.place(france)?.visitDate, '2019-07');
+  assert.equal(openJournal({ db, atlas }).place(france)?.visitDate, '2019-07');
+});
+
+test('only a Place marked Visited has a Visit date to set, not one Visited through the Places inside it', () => {
+  const j = journal();
+  j.mark(france, 'wish');
+  j.mark(kansai, 'visited');
+  assert.throws(() => j.setVisitDate(france, '2019-07'));
+  assert.throws(() => j.setVisitDate(japan, '2019-07'));
+  assert.equal(j.place(france)?.visitDate, null);
+  assert.equal(j.place(japan), null);
+});
+
+test('a Visit date is a month gone by or the current one, never one to come', () => {
+  const j = journal(new Date(2026, 9, 18));
+  j.mark(france, 'visited');
+  assert.throws(() => j.setVisitDate(france, '2026-11'));
+  assert.throws(() => j.setVisitDate(france, '2019-13'));
+  assert.throws(() => j.setVisitDate(france, '2019'));
+  assert.equal(j.place(france)?.visitDate, '2026-10');
+  j.setVisitDate(france, '2026-10');
+  assert.equal(j.place(france)?.visitDate, '2026-10');
+});
+
+test('a Place without a Visit date of its own spans the Visit dates of the Places inside it', () => {
+  const j = journal(new Date(2026, 9, 18));
+  assert.equal(j.visitDates(japan), null);
+  j.mark(kyoto, 'visited');
+  j.setVisitDate(kyoto, '2024-04');
+  j.mark(kanto, 'visited');
+  j.setVisitDate(kanto, '2019-03');
+  j.mark(naha, 'visited');
+  j.setVisitDate(naha, '2012-08');
+  j.mark({ ...kyoto, id: '1853909', name: 'Ōsaka' }, 'wish');
+  assert.deepEqual(j.visitDates(japan), { from: '2019-03', to: '2024-04' }, 'not Naha, on an Island');
+  assert.deepEqual(j.visitDates(kansai), { from: '2024-04', to: '2024-04' });
+  assert.deepEqual(j.visitDates({ level: 'island', id: 'i-okinawa' }), { from: '2012-08', to: '2012-08' });
+});
+
+test('a Place with a Visit date of its own shows that date, whatever the Places inside it say', () => {
+  const j = journal(new Date(2026, 9, 18));
+  j.mark(kyoto, 'visited');
+  j.setVisitDate(kyoto, '2024-04');
+  j.mark(kanto, 'visited');
+  j.setVisitDate(kanto, '2019-03');
+  j.mark(japan, 'visited');
+  j.setVisitDate(japan, '2022-11');
+  assert.deepEqual(j.visitDates(japan), { from: '2022-11', to: '2022-11' });
+  j.mark(japan, null);
+  assert.deepEqual(j.visitDates(japan), { from: '2019-03', to: '2024-04' }, 'the range again, once its own date goes');
+});
+
+test('undoing the removal of a Mark gives back the Visit date as the user set it', () => {
+  const j = journal(new Date(2026, 9, 18));
+  j.mark(france, 'visited');
+  j.setVisitDate(france, '2019-07');
+  j.mark(france, null);
+  j.undo();
+  assert.equal(j.place(france)?.visitDate, '2019-07');
+});
