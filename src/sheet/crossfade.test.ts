@@ -23,8 +23,12 @@ test('a City of the same Country, flown to as the sheet slides to half height, s
   assert.equal(sheetChange(kansai, { ref: { level: 'city', id: 'kyoto' }, country: 3 }), 'swap');
 });
 
-test('the Country tapped again, as the sheet slides back to half height, shows at once', () => {
-  assert.equal(sheetChange(kansai, japan), 'swap');
+test('a Region going back to its Country fades back to the Country', () => {
+  assert.equal(sheetChange(kansai, japan), 'fade');
+});
+
+test('a City going back to its Country shows the Country at once', () => {
+  assert.equal(sheetChange({ ref: { level: 'city', id: 'kyoto' }, country: 3 }, japan), 'swap');
 });
 
 test('a sheet opening shows its Place at once, even the Country it last showed a Region of', () => {
