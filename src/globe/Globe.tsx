@@ -234,10 +234,9 @@ export const Globe = memo(function Globe({
     flight.value = null;
     lift.value = withTiming(flying.to.lift, sheetTiming);
   };
-  // A Region opens its sheet at peek height, over its Country still framed.
+  // A Region shows on the sheet at the height it is, over its Country still framed.
   const selectRegion = (region: number) => {
     'worklet';
-    sheetHeight.value = withTiming(detentHeight('peek', viewport.value.height), sheetTiming);
     scheduleOnRN(onSelectRegion, region);
   };
   // Recentring lets go of the selected Country: the whole globe faces the point, sheet closed.
