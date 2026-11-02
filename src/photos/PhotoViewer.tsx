@@ -19,6 +19,7 @@ import {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -90,6 +91,17 @@ export function PhotoViewer({ place, first, inside }: Props) {
       </View>
 
       <View style={[styles.bottom, { paddingBottom: insets.bottom + space[3] }]}>
+        {/* The design system's protection gradient under a Caption. */}
+        <Svg style={StyleSheet.absoluteFill} preserveAspectRatio="none">
+          <Defs>
+            <LinearGradient id="protection" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor={colors.ink1} stopOpacity={0} />
+              <Stop offset="0.4" stopColor={colors.ink1} stopOpacity={0.55} />
+              <Stop offset="1" stopColor={colors.ink1} stopOpacity={0.7} />
+            </LinearGradient>
+          </Defs>
+          <Rect width="100%" height="100%" fill="url(#protection)" />
+        </Svg>
         {inside ? (
           shown.caption !== '' && <Text style={styles.caption}>{shown.caption}</Text>
         ) : (
@@ -128,7 +140,8 @@ function CaptionInput({ caption, onChange }: { caption: string; onChange: (capti
   const [draft, setDraft] = useState(caption);
   const saved = useRef(caption);
   const save = () => {
-    const next = draft.trim();
+    // One line: a line break pasted in is a space.
+    const next = draft.replace(/[\r\n]+/g, ' ').trim();
     if (next !== saved.current) onChange(next);
     saved.current = next;
   };
@@ -234,7 +247,7 @@ function DarkButton({ icon: Icon, label, onPress }: { icon: typeof X; label: str
       accessibilityLabel={label}
       onPress={onPress}
       style={({ pressed }) => [styles.darkButton, pressed && styles.pressed]}>
-      <Icon color={colors.textInverse} size={22} strokeWidth={2} />
+      <Icon color={colors.textInverse} size={24} strokeWidth={2} />
     </Pressable>
   );
 }
@@ -276,13 +289,12 @@ const styles = StyleSheet.create({
   pressed: {
     backgroundColor: 'rgba(251,249,244,0.16)',
   },
-  // Over the bottom of the Photo, on the design system's caption gradient, made solid.
+  // Over the bottom of the Photo, on its gradient.
   bottom: {
     marginTop: 'auto',
     gap: space[3],
-    paddingTop: space[5],
+    paddingTop: space[8],
     paddingHorizontal: layout.screenGutter,
-    backgroundColor: 'rgba(27,26,23,0.55)',
   },
   caption: {
     ...text.body,

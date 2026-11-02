@@ -6,18 +6,14 @@ import { Skia, type SkImage } from '@shopify/react-native-skia';
 import { useEffect, useRef, useState } from 'react';
 import { useSharedValue, type SharedValue } from 'react-native-reanimated';
 
-import { anchorOf, atlas, countries, countryGeometry } from '@/atlas';
+import { anchorOf, atlas, countryGeometry, placeIndex as indexOf } from '@/atlas';
 import type { Journal, PlaceRef, Point } from '@/journal/journal';
 import { photoUri } from '@/journal/devicePhotoFiles';
 
-import type { GlobeThumbnail } from './Globe';
-import { TIER, type Thumbnail } from './thumbnails';
+import { TIER, type GlobeThumbnail, type Thumbnail } from './thumbnails';
 
 /** The selected Country's Regions, once loaded: their ids and where their thumbnails sit, in order. */
 export type RegionAnchors = { country: number; anchors: (Point & { id: string })[] };
-
-/** Index in the Atlas of a Country or Island, by id. */
-const indexOf = (id: string) => countries.findIndex((c) => c.id === id);
 
 /** Where a Place's thumbnail sits and what it is in; null when that is not known yet. */
 function placing(journal: Journal, place: PlaceRef, regions: RegionAnchors | null): (Point & Omit<Thumbnail, 'count' | 'ownCount'> & { city: string | null }) | null {

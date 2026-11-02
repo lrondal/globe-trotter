@@ -107,9 +107,10 @@ const MIGRATIONS = [
   )`,
   // A Custom City is a City the user dropped on the globe, rather than one of the list.
   `ALTER TABLE cities ADD COLUMN custom INTEGER NOT NULL DEFAULT 0`,
-  // A Place's Photos are in the order they were added, which is the order of their ids.
+  // A Place's Photos are in the order they were added, which is the order of their ids. An id
+  // is never given twice, so a Cover photo chosen and gone never comes back as another Photo.
   `CREATE TABLE photos (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     level TEXT NOT NULL,
     place_id TEXT NOT NULL,
     file TEXT NOT NULL,
@@ -240,7 +241,8 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
     const photo = toPhoto(row);
     photos.set(keyOf(photo.place), [...(photos.get(keyOf(photo.place)) ?? []), photo]);
   }
-  let lastPhotoId = Math.max(0, ...[...photos.values()].flat().map((photo) => photo.id));
+  /** The last id given to a Photo, deleted since or not. */
+  let lastPhotoId = db.all<{ seq: number }>("SELECT seq FROM sqlite_sequence WHERE name = 'photos'")[0]?.seq ?? 0;
   const cities = new Map(
     db
       .all<CityRow>('SELECT id, name, lon, lat, country_id, island_id, region_id, custom FROM cities')
@@ -543,16 +545,12 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
      * The Photos of the Places inside a Place, not its own, in the order they were added: a
      * Country's are those of its Regions and of its Cities. A Photo is listed by its Place only.
      */
-    photosInside(place: PlaceRef): Photo[] {
-      return photosInside(place);
-    },
+    photosInside,
     /**
      * The Photo that represents a Place, on the globe and in its sheet (see coverPhoto above);
      * null when neither it nor the Places inside it have Photos.
      */
-    coverPhoto(place: PlaceRef, ownOnly = false): Photo | null {
-      return coverPhoto(place, ownOnly);
-    },
+    coverPhoto,
     /** Chooses a Place's Cover photo, among its own Photos and those of the Places inside it. */
     setCoverPhoto(place: PlaceRef, photoId: number) {
       const own = photos.get(keyOf(place)) ?? [];

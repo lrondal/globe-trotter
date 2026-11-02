@@ -21,17 +21,16 @@ import {
   ClipOp,
   createPicture,
   Group,
-  matchFont,
   notifyChange,
   Path,
   Picture,
   Skia,
+  useFont,
   usePathValue,
-  type SkImage,
 } from '@shopify/react-native-skia';
 import { LocateFixed, Minus, Plus } from 'lucide-react-native';
 import { memo, useEffect, useImperativeHandle, useMemo, useState, type Ref } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   cancelAnimation,
@@ -51,7 +50,7 @@ import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 import { countryGeometry, footprintOf, type CountryGeometry, type Footprint } from '@/atlas';
 import { IconButton } from '@/components/IconButton';
 import { detentHeight, sheetTiming } from '@/sheet/detents';
-import { colors, duration, easing, fonts, layout, radius } from '@/theme/tokens';
+import { colors, duration, easing, fonts, layout, radius, text } from '@/theme/tokens';
 
 import {
   centerOn,
@@ -85,7 +84,7 @@ import {
   type Detail,
   type Viewport,
 } from './projection';
-import { HIDDEN, keepApart, OWN, shownAs, thumbnailDiameter, TIER, type Thumbnail } from './thumbnails';
+import { HIDDEN, keepApart, OWN, shownAs, thumbnailDiameter, TIER, type GlobeThumbnail } from './thumbnails';
 
 const zoomTiming = { duration: duration.slow, easing: Easing.bezier(...easing.out) };
 /** How the Regions and the tint of their Country fade in and out. */
@@ -108,8 +107,9 @@ const THUMBNAIL_LIFT = 4;
 const THUMBNAIL_RING = 1.5;
 /** A thumbnail is tapped this far from its centre, in points: a 44 pt zone. */
 const THUMBNAIL_REACH = layout.hitMin / 2;
-/** Its counter: a pill this high, in points, over its top right. */
-const COUNTER_HEIGHT = 14;
+/** Its counter: a pill this high, in points, over its top right, its count in the overline's type. */
+const COUNTER_HEIGHT = 16;
+const COUNTER_FONT = require('@expo-google-fonts/hanken-grotesk/600SemiBold/HankenGrotesk_600SemiBold.ttf');
 /** A City's dot is tapped this far from it, in points. */
 const CITY_REACH = CITY_RADIUS + TAP_TOLERANCE;
 /** Measures are reported to the panel this often, in milliseconds. */
@@ -136,19 +136,6 @@ export type ShownRegions = { country: number; geometry: CountryGeometry };
 export type RegionLayers = { country: number; layers: Layer[] };
 /** A Journal City's dot. */
 export type CityDot = Point & { id: string };
-/**
- * A Place's Photo thumbnail: where it sits, the image of its Cover photo, and of its Cover
- * photo among its own Photos when it has some (see thumbnails.ts).
- */
-export type GlobeThumbnail = Thumbnail &
-  Point & {
-    /** Its Place's key, which keeps its fade from one list to the next. */
-    key: string;
-    /** The City it is, if any. */
-    city: string | null;
-    image: SkImage;
-    ownImage: SkImage | null;
-  };
 
 /** The fill of a Region's own path: its layer's colour, if its layer is filled. */
 function fillOf(layer: Layer | undefined) {
@@ -522,7 +509,7 @@ export const Globe = memo(function Globe({
   // and, from the last frame drawn, where those shown are, for a tap.
   const thumbnailAlpha = useSharedValue<Record<string, number>>({});
   const thumbnailTarget = useSharedValue<Record<string, number>>({});
-  const thumbnailSpots = useSharedValue<{ x: number; y: number; t: number }[]>([]);
+  const thumbnailSpots = useSharedValue<{ x: number; y: number; key: string }[]>([]);
   const paints = useMemo(() => {
     const shadow = Skia.Paint();
     shadow.setColor(Skia.Color('rgba(27,26,23,0.3)'));
@@ -537,10 +524,8 @@ export const Globe = memo(function Globe({
     count.setColor(Skia.Color(colors.paper0));
     return { shadow, ring, image, counter, count };
   }, []);
-  const counterFont = useMemo(
-    () => matchFont({ fontFamily: Platform.select({ ios: 'Helvetica Neue', default: 'sans-serif' }), fontSize: 9, fontWeight: '600' }),
-    [],
-  );
+  // Null until loaded: the counters wait for it.
+  const counterFont = useFont(COUNTER_FONT, text.overline.fontSize);
   const thumbnailPicture = useDerivedValue(() => {
     const { width, height } = viewport.value;
     const list = thumbnails.value;
@@ -552,22 +537,22 @@ export const Globe = memo(function Globe({
     const ys: number[] = [];
     const counts: number[] = [];
     const shown: boolean[] = [];
-    const as: number[] = [];
+    const showings: number[] = [];
     for (const t of list) {
       const { x, y, visible } = projectPoint(camera, t);
       const showing = shownAs(t, selection, zoom.value);
       xs.push(x);
       ys.push(y - d / 2 - THUMBNAIL_LIFT);
-      as.push(showing);
+      showings.push(showing);
       counts.push(showing === OWN ? t.ownCount : t.count);
       shown.push(visible && showing !== HIDDEN && (showing !== OWN || t.ownImage !== null));
     }
     const kept = keepApart(xs, ys, counts, shown, d);
     const target: Record<string, number> = {};
-    const spots: { x: number; y: number; t: number }[] = [];
+    const spots: { x: number; y: number; key: string }[] = [];
     list.forEach((t, i) => {
       target[t.key] = kept[i] ? 1 : 0;
-      if (kept[i] && (alpha[t.key] ?? 0) > 0.5) spots.push({ x: xs[i], y: ys[i], t: i });
+      if (kept[i] && (alpha[t.key] ?? 0) > 0.5) spots.push({ x: xs[i], y: ys[i], key: t.key });
     });
     thumbnailTarget.value = target;
     thumbnailSpots.value = spots;
@@ -578,7 +563,7 @@ export const Globe = memo(function Globe({
           const a = alpha[t.key] ?? 0;
           // Off the near side, a thumbnail goes at once rather than fading over the rim.
           if (a <= 0 || !shown[i]) return;
-          const image = as[i] === OWN && t.ownImage ? t.ownImage : t.image;
+          const image = showings[i] === OWN && t.ownImage ? t.ownImage : t.image;
           const [x, y] = [xs[i], ys[i]];
           paints.shadow.setAlphaf(0.3 * a);
           canvas.drawCircle(x, y + 2, r, paints.shadow);
@@ -594,17 +579,19 @@ export const Globe = memo(function Globe({
           paints.image.setAlphaf(a);
           canvas.drawImageRect(image, Skia.XYWHRect((w - side) / 2, (h - side) / 2, side, side), disc, paints.image);
           canvas.restore();
-          if (counts[i] < 2) return;
+          if (counts[i] < 2 || !counterFont) return;
           // The counter: an ink pill ringed with paper, over the top right.
           const label = String(counts[i]);
           const textWidth = counterFont.measureText(label).width;
           const pill = Math.max(COUNTER_HEIGHT, textWidth + 8);
           const [px, py] = [x + r * 0.7 - pill / 2, y - r * 0.7 - COUNTER_HEIGHT / 2];
-          canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(px - 1, py - 1, pill + 2, COUNTER_HEIGHT + 2), 8, 8), paints.ring);
+          const round = COUNTER_HEIGHT / 2;
+          canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(px - 1, py - 1, pill + 2, COUNTER_HEIGHT + 2), round + 1, round + 1), paints.ring);
           paints.counter.setAlphaf(a);
-          canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(px, py, pill, COUNTER_HEIGHT), 7, 7), paints.counter);
+          canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(px, py, pill, COUNTER_HEIGHT), round, round), paints.counter);
           paints.count.setAlphaf(a);
-          canvas.drawText(label, px + (pill - textWidth) / 2, py + COUNTER_HEIGHT / 2 + 3, paints.count, counterFont);
+          // On the baseline that centres the digits' height in the pill.
+          canvas.drawText(label, px + (pill - textWidth) / 2, py + round + counterFont.measureText(label).height / 2, paints.count, counterFont);
         });
       },
       { width, height },
@@ -617,16 +604,17 @@ export const Globe = memo(function Globe({
       if (!success) return;
       const f = frame();
       // A thumbnail, or else a City's dot, before the land they are drawn over: the nearest.
-      let thumbnail = -1;
+      // By key: the list may have changed since the frame that placed them.
+      let key: string | null = null;
       let nearest = THUMBNAIL_REACH;
       for (const spot of thumbnailSpots.value) {
         const distance = Math.hypot(spot.x - e.x, spot.y - e.y);
         if (distance < nearest) {
           nearest = distance;
-          thumbnail = spot.t;
+          key = spot.key;
         }
       }
-      const t = thumbnail >= 0 ? thumbnails.value[thumbnail] : null;
+      const t = key === null ? null : (thumbnails.value.find((candidate) => candidate.key === key) ?? null);
       if (t?.city) {
         scheduleOnRN(onSelectCity, t.city);
         return;

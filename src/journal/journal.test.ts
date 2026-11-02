@@ -661,3 +661,12 @@ test('the Places with Photos are those holding some, and those with some inside 
   const keys = (places: PlaceRef[]) => places.map(({ level, id }) => `${level}:${id}`).sort();
   assert.deepEqual(keys(j.photographed()), keys([kyoto, kansai, japan, naha, { level: 'island', id: 'i-okinawa' }, france]));
 });
+
+test('a deleted Photo leaves its id behind for good, even after reopening the app', async () => {
+  const db = memoryDatabase();
+  const files = memoryPhotoFiles();
+  const [photo] = await openJournal({ db, atlas, files }).addPhotos(france, ['sarlat.heic']);
+  openJournal({ db, atlas, files }).deletePhoto(photo.id);
+  const [next] = await openJournal({ db, atlas, files }).addPhotos(france, ['annecy.heic']);
+  assert.notEqual(next.id, photo.id);
+});

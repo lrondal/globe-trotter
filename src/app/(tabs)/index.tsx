@@ -4,7 +4,18 @@ import { Linking, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { anchorOf, atlas, cityPlace, listedCity, countries, countryGeometry, footprintOf, places, type Footprint } from '@/atlas';
+import {
+  anchorOf,
+  atlas,
+  cityPlace,
+  listedCity,
+  countries,
+  countryGeometry,
+  footprintOf,
+  placeIndex as indexOf,
+  places,
+  type Footprint,
+} from '@/atlas';
 import { Button } from '@/components/Button';
 import { FilterChip } from '@/components/FilterChip';
 import { NameDialog } from '@/components/NameDialog';
@@ -79,8 +90,6 @@ const INSIDE_LABEL: Record<PlaceRef['level'], string> = {
   city: '',
 };
 
-/** Index in the Atlas of a Country or Island, by id. */
-const indexOf = (id: string) => countries.findIndex((c) => c.id === id);
 
 /**
  * What the globe frames for a City: a square of 0.015 globe radii, about 100 km, a city and

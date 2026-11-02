@@ -6,6 +6,7 @@
 // Country or an Island selected, its Regions and Cities show theirs whatever the zoom, and
 // the others hide; it keeps its own only with Photos of its own, and shows one of those. A
 // Region selected does the same with its Cities.
+import type { SkImage } from '@shopify/react-native-skia';
 
 /** What a thumbnail stands for: a Country or an Island, a Region, a City. */
 export const TIER = { country: 0, region: 1, city: 2 } as const;
@@ -21,6 +22,21 @@ export type Thumbnail = {
   count: number;
   /** Its own Photos only. */
   ownCount: number;
+};
+
+/**
+ * A Place's Photo thumbnail as the globe draws it: where it sits, the image of its Cover
+ * photo, and of its Cover photo among its own Photos when it has some.
+ */
+export type GlobeThumbnail = Thumbnail & {
+  /** Its Place's key, which keeps its fade from one list to the next, and finds it when tapped. */
+  key: string;
+  lon: number;
+  lat: number;
+  /** The City it is, if any. */
+  city: string | null;
+  image: SkImage;
+  ownImage: SkImage | null;
 };
 
 /** What is selected on the globe, by index: -1 for none. */
