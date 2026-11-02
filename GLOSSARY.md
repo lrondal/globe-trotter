@@ -61,11 +61,15 @@ A checklist item attached to a Place.
 _Avoid_: Task
 
 **Photo** (Photo):
-An image belonging to exactly one Place, shown on the globe at that Place's point.
+An image belonging to exactly one Place, shown on the globe at that Place's point: a City's own point, or the pole of inaccessibility of the largest polygon of a Country, Island or Region. A Country, Island or Region also shows the Photos of the Places inside it, without owning them.
 _Avoid_: Picture, image, media
 
 **Cover photo**:
-The one Photo a Place has chosen to represent it.
+The one Photo that represents a Place, on the globe and in its sheet. The user can choose it among the Place's own Photos or those of the Places inside it; failing that, it is the Place's first own Photo, or else the first Photo inside it.
+
+**Caption** (Légende):
+The optional one-line text the user writes on a Photo, shown only when the Photo is open full screen.
+_Avoid_: Legend, title, description
 
 ## Actions
 
