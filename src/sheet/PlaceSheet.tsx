@@ -2,21 +2,29 @@
 // full height. Its height is a shared value the Globe writes too, so a tap on a Country opens
 // it from the UI thread, before React has rendered its content.
 import { Bookmark, BookmarkMinus, Check, ChevronRight, Move, NotebookPen, PenLine, X } from 'lucide-react-native';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector, ScrollView } from 'react-native-gesture-handler';
-import Animated, { cancelAnimation, useAnimatedStyle, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { Button } from '@/components/Button';
 import { STATUS_LABEL, StatusBadge } from '@/components/StatusBadge';
 import type { Mark, Status } from '@/journal/journal';
-import { colors, fonts, layout, radius, shadow, space, text } from '@/theme/tokens';
+import { colors, duration, easing, fonts, layout, radius, shadow, space, text } from '@/theme/tokens';
 
 import { formatCoordinates } from './coordinates';
+import { sheetChange, type SheetIdentity } from './crossfade';
 import { detentHeight, restingDetent, sheetTiming } from './detents';
 
-export type SheetPlace = {
+export type SheetPlace = SheetIdentity & {
   name: string;
   /** Shown above the name: a Region's Country. */
   overline?: string;
@@ -61,6 +69,11 @@ const EXCERPT_LINES = 3;
 /** Places of the provenance named before « … ». */
 const VIA_NAMES = 3;
 
+/** The content fades out quickly, then the next Place fades in. */
+const fadeEasing = Easing.bezier(...easing.out);
+const fadeOut = { duration: duration.fast, easing: fadeEasing };
+const fadeIn = { duration: duration.base, easing: fadeEasing };
+
 /** The status dot of a row: an unexplored one is hollow. */
 const DOT: Record<Status, object> = {
   visited: { backgroundColor: colors.stateVisited },
@@ -73,9 +86,36 @@ const formatVia = (names: string[]) =>
   names.length === 0 ? null : `via ${names.slice(0, VIA_NAMES).join(', ')}${names.length > VIA_NAMES ? ', …' : ''}`;
 
 export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpenNote, onOpenCity, onRename, onMove }: Props) {
-  // The last Place stays on the sheet while it slides away.
+  // The last Place stays on the sheet while it slides away, or while it fades out.
   const [shown, setShown] = useState(place);
-  if (place && place !== shown) setShown(place);
+  /** The `place` of the last render. */
+  const [previous, setPrevious] = useState(place);
+  const [fading, setFading] = useState(false);
+  if (place !== previous) {
+    setPrevious(place);
+    const change = sheetChange(previous, place);
+    // Fading out, the next Place waits for the content to be gone, whatever it is.
+    if (change === 'swap' || (change === 'update' && !fading)) {
+      setShown(place);
+      setFading(false);
+    } else if (change === 'fade') setFading(true);
+  }
+  const latest = useRef(place);
+  useEffect(() => {
+    latest.current = place;
+  }, [place]);
+  // Closed while fading out, the sheet slides away empty: the next one opening shows its Place.
+  const reveal = useCallback(() => {
+    if (!latest.current) return;
+    setShown(latest.current);
+    setFading(false);
+  }, []);
+  const opacity = useSharedValue(1);
+  useEffect(() => {
+    if (fading) opacity.value = withTiming(0, fadeOut, (done) => done && scheduleOnRN(reveal));
+    else opacity.value = withTiming(1, fadeIn);
+  }, [fading, shown, opacity, reveal]);
+  const fade = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   const full = detentHeight('full', screenHeight);
   const drag = Gesture.Pan()
@@ -103,7 +143,7 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
           <View style={styles.handle} />
           {shown && (
             <View style={styles.header}>
-              <View style={styles.titles}>
+              <Animated.View style={[styles.titles, fade]}>
                 {shown.overline && <Text style={styles.overline}>{shown.overline}</Text>}
                 <Text style={styles.title} numberOfLines={2}>
                   {shown.name}
@@ -113,7 +153,7 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
                   {formatVia(shown.via) && <Text style={styles.via}>{formatVia(shown.via)}</Text>}
                   <Text style={styles.meta}>{formatCoordinates(shown.lon, shown.lat)}</Text>
                 </View>
-              </View>
+              </Animated.View>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Fermer"
@@ -127,53 +167,56 @@ export function PlaceSheet({ height, screenHeight, place, onClose, onMark, onOpe
         </View>
       </GestureDetector>
       {shown && (
-        <ScrollView contentContainerStyle={styles.body}>
-          <MarkActions status={shown.status} canRemove={shown.canRemove} feminine={shown.feminine} onMark={onMark} />
-          {shown.note !== '' && (
-            <Text style={styles.excerpt} numberOfLines={EXCERPT_LINES}>
-              « {shown.note.trim()} »
-            </Text>
-          )}
-          {/* For every Status: a Note or Todos can be written before marking the Place. */}
-          <Button variant="secondary" icon={NotebookPen} fullWidth onPress={onOpenNote}>
-            Ouvrir le carnet
-          </Button>
-          {shown.custom && (
-            <View style={styles.actions}>
-              <Button variant="secondary" icon={PenLine} onPress={onRename} style={styles.action}>
-                Renommer
-              </Button>
-              <Button variant="secondary" icon={Move} onPress={onMove} style={styles.action}>
-                Déplacer
-              </Button>
-            </View>
-          )}
-          {shown.cities.length > 0 && (
-            <View>
-              <Text style={styles.overline}>Villes</Text>
-              {shown.cities.map((city, i) => (
-                <Pressable
-                  key={city.id}
-                  accessibilityRole="button"
-                  onPress={() => onOpenCity(city.id)}
-                  style={({ pressed }) => [
-                    styles.cityRow,
-                    i === shown.cities.length - 1 && styles.lastRow,
-                    pressed && { backgroundColor: colors.paper2 },
-                  ]}>
-                  <View style={styles.cityText}>
-                    <Text style={styles.cityName} numberOfLines={1}>
-                      {city.name}
-                    </Text>
-                    <Text style={styles.cityMeta}>{STATUS_LABEL[city.status]}</Text>
-                  </View>
-                  <View style={[styles.dot, DOT[city.status]]} />
-                  <ChevronRight color={colors.ink4} size={18} strokeWidth={2} />
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </ScrollView>
+        // Fading out, its buttons would act on the next Place already.
+        <Animated.View style={[styles.content, fade]} pointerEvents={fading ? 'none' : 'auto'}>
+          <ScrollView contentContainerStyle={styles.body}>
+            <MarkActions status={shown.status} canRemove={shown.canRemove} feminine={shown.feminine} onMark={onMark} />
+            {shown.note !== '' && (
+              <Text style={styles.excerpt} numberOfLines={EXCERPT_LINES}>
+                « {shown.note.trim()} »
+              </Text>
+            )}
+            {/* For every Status: a Note or Todos can be written before marking the Place. */}
+            <Button variant="secondary" icon={NotebookPen} fullWidth onPress={onOpenNote}>
+              Ouvrir le carnet
+            </Button>
+            {shown.custom && (
+              <View style={styles.actions}>
+                <Button variant="secondary" icon={PenLine} onPress={onRename} style={styles.action}>
+                  Renommer
+                </Button>
+                <Button variant="secondary" icon={Move} onPress={onMove} style={styles.action}>
+                  Déplacer
+                </Button>
+              </View>
+            )}
+            {shown.cities.length > 0 && (
+              <View>
+                <Text style={styles.overline}>Villes</Text>
+                {shown.cities.map((city, i) => (
+                  <Pressable
+                    key={city.id}
+                    accessibilityRole="button"
+                    onPress={() => onOpenCity(city.id)}
+                    style={({ pressed }) => [
+                      styles.cityRow,
+                      i === shown.cities.length - 1 && styles.lastRow,
+                      pressed && { backgroundColor: colors.paper2 },
+                    ]}>
+                    <View style={styles.cityText}>
+                      <Text style={styles.cityName} numberOfLines={1}>
+                        {city.name}
+                      </Text>
+                      <Text style={styles.cityMeta}>{STATUS_LABEL[city.status]}</Text>
+                    </View>
+                    <View style={[styles.dot, DOT[city.status]]} />
+                    <ChevronRight color={colors.ink4} size={18} strokeWidth={2} />
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </ScrollView>
+        </Animated.View>
       )}
     </Animated.View>
   );
@@ -284,6 +327,9 @@ const styles = StyleSheet.create({
     ...text.caption,
     color: colors.textMuted,
     fontVariant: ['tabular-nums'],
+  },
+  content: {
+    flex: 1,
   },
   body: {
     gap: 18,
