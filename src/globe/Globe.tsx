@@ -7,7 +7,8 @@
 // so the sheet re-rendering never rebuilds its gestures and paths mid-flight.
 //
 // The selected Country's Regions are handed over by the parent once loaded, and fade in over
-// it while it fades to its tint: the flight never waits for them. The Journal's Cities are
+// it while it fades to its tint: the flight never waits for them. A tap on one of them flies
+// to it, and its outline darkens while the one left fades back. The Journal's Cities are
 // ink dots, drawn over everything but the rim. A long press tells the parent the point of
 // the globe under the finger, where a Custom City goes.
 import { Canvas, Circle, Group, notifyChange, Path, Skia, usePathValue } from '@shopify/react-native-skia';
@@ -75,6 +76,8 @@ const fadeTiming = { duration: duration.base, easing: Easing.bezier(...easing.ou
 const REGIONS_TAPPABLE = 0.5;
 /** The Regions' hairlines, in points. */
 const REGION_STROKE = 0.6;
+/** The outline of the selected Region, in points: the design system's selected outline. */
+const SELECTED_STROKE = 1.5;
 /** The location dot: a 6 pt sage dot with a thin paper ring, in points. */
 const LOCATION_RADIUS = 3;
 const LOCATION_RING = 1.5;
@@ -85,6 +88,13 @@ const CITY_RING = 1.2;
 const MEASURE_EVERY = 500;
 /** One path per colour layer, in LAYER order. */
 const LAYERS = Object.values(LAYER);
+/**
+ * After the colour layers, the Regions take two paths of their own: the selected Region,
+ * and the one selected before it while its outline fades back.
+ */
+const SELECTED_PATH = LAYERS.length;
+const LEFT_PATH = LAYERS.length + 1;
+const REGION_PATHS = LAYERS.length + 2;
 /** After a pinch, the finger left down drags the globe once it has moved this far, in points. */
 const DRAG_AFTER_PINCH = 10;
 /** A press this long, in milliseconds, without moving, is a long press: not a tap. */
@@ -97,12 +107,26 @@ export type ShownRegions = { country: number; geometry: CountryGeometry };
 /** The colour layer of each Region of the Country at index `country`, in their order. */
 export type RegionLayers = { country: number; layers: Layer[] };
 
+/** The fill of a Region's own path: its layer's colour, if its layer is filled. */
+function fillOf(layer: Layer | undefined) {
+  'worklet';
+  if (layer === LAYER.visited) return colors.stateVisited;
+  if (layer === LAYER.wish) return colors.stateWish;
+  return 'transparent';
+}
+
 export type GlobeHandle = {
   /**
    * Flies to the Country at this index in the Atlas and opens its sheet, as a tap on it does;
    * framing `footprint` rather than the Country when given, a City of it say.
    */
   select(country: number, footprint?: Footprint): void;
+  /**
+   * Flies to Region `region` of that Country, by its index in the Country's RegionGeometry, as
+   * a tap on it does, and tells onSelect the Country. The flight starts at once: towards the
+   * Country while its Regions load, then towards the Region once they are there.
+   */
+  selectRegion(country: number, region: number): void;
   /** Lets go of the selected Country: closes the sheet and lowers the globe back. */
   deselect(): void;
 };
@@ -124,7 +148,7 @@ type Props = {
   regions: SharedValue<ShownRegions | null>;
   /** The colour layers of those Regions. */
   regionLayers: SharedValue<RegionLayers | null>;
-  /** Index of the Region tapped, in the geometry of `regions`. */
+  /** Index of the Region tapped, in the geometry of `regions`, as the globe flies to it. */
   onSelectRegion: (region: number) => void;
   /** The points of the Journal's Cities. */
   cities: SharedValue<Point[]>;
@@ -170,6 +194,14 @@ export const Globe = memo(function Globe({
   const selectedCountry = useSharedValue(-1);
   /** 0 to 1 as the selected Country's Regions fade in, and it fades to its tint. */
   const fade = useSharedValue(0);
+  /** Index of the selected Region in the selected Country's, or -1; and how marked its outline is. */
+  const selectedRegion = useSharedValue(-1);
+  const emphasis = useSharedValue(0);
+  /** The Region selected before it, or -1, while its outline fades back. */
+  const leftRegion = useSharedValue(-1);
+  const leftEmphasis = useSharedValue(0);
+  /** The selected Region the globe flies to once its Country's Regions are there, or -1. */
+  const awaitedRegion = useSharedValue(-1);
 
   const [detail, setDetail] = useState<Detail>('standard');
   const [measures, setMeasures] = useState<Measures | null>(null);
@@ -194,29 +226,50 @@ export const Globe = memo(function Globe({
     return frameFor(view(), viewport.value, lift.value);
   };
 
-  const select = (country: number, footprint?: Footprint) => {
+  // Flies to frame a Place above the sheet, opened to half height.
+  const flyOver = (footprint: Footprint) => {
     'worklet';
     const screenHeight = viewport.value.height;
     const half = detentHeight('half', screenHeight);
-    const to = fit(footprint ?? footprintOf(countryGeometry, country), viewport.value, screenHeight - half);
-    // Another Country's Regions go at once; the same Country's stay.
-    if (country !== selectedCountry.value) {
-      cancelAnimation(fade);
-      fade.value = 0;
-    }
-    selectedCountry.value = country;
+    const to = fit(footprint, viewport.value, screenHeight - half);
     spin.value = null;
     holding.value = 0;
     cancelAnimation(zoom);
     cancelAnimation(lift);
     flight.value = { from: { view: view(), lift: lift.value }, to, elapsed: 0 };
     sheetHeight.value = withTiming(half, sheetTiming);
+  };
+  // The outline of the Region selected darkens, while the one before it fades back.
+  const emphasize = (region: number) => {
+    'worklet';
+    if (region === selectedRegion.value) return;
+    leftRegion.value = selectedRegion.value;
+    leftEmphasis.value = emphasis.value;
+    leftEmphasis.value = withTiming(0, fadeTiming);
+    selectedRegion.value = region;
+    emphasis.value = 0;
+    if (region >= 0) emphasis.value = withTiming(1, fadeTiming);
+  };
+  const select = (country: number, footprint?: Footprint, region = -1) => {
+    'worklet';
+    awaitedRegion.value = -1;
+    // Another Country's Regions go at once; the same Country's stay.
+    if (country !== selectedCountry.value) {
+      cancelAnimation(fade);
+      fade.value = 0;
+      selectedRegion.value = -1;
+      leftRegion.value = -1;
+    }
+    emphasize(region);
+    selectedCountry.value = country;
+    flyOver(footprint ?? footprintOf(countryGeometry, country));
     scheduleOnRN(onSelect, country);
   };
   // Its Regions fade out with it.
   const letGo = () => {
     'worklet';
     selectedCountry.value = -1;
+    awaitedRegion.value = -1;
     fade.value = withTiming(0, fadeTiming);
   };
   const deselect = () => {
@@ -226,18 +279,30 @@ export const Globe = memo(function Globe({
     lift.value = withTiming(0, sheetTiming);
     sheetHeight.value = withTiming(0, sheetTiming);
   };
-  // A flight cut short by a gesture still lifts the globe above the sheet it opened.
+  // A flight cut short by a gesture still lifts the globe above the sheet it opened, and
+  // stays cut short when the Region it was for shows.
   const stopFlight = () => {
     'worklet';
+    awaitedRegion.value = -1;
     const flying = flight.value;
     if (!flying) return;
     flight.value = null;
     lift.value = withTiming(flying.to.lift, sheetTiming);
   };
-  // A Region shows on the sheet at the height it is, over its Country still framed.
-  const selectRegion = (region: number) => {
+  // A Region tapped in the selected Country, whose Regions stay: the globe flies to it.
+  const flyToRegion = (shown: ShownRegions, region: number) => {
     'worklet';
+    emphasize(region);
+    flyOver(footprintOf(shown.geometry, region));
     scheduleOnRN(onSelectRegion, region);
+  };
+  // A Region asked for, whose Regions may not be loaded yet: framed by its Country meanwhile.
+  const selectRegion = (country: number, region: number) => {
+    'worklet';
+    const shown = regions.value;
+    const loaded = shown?.country === country;
+    select(country, loaded ? footprintOf(shown.geometry, region) : undefined, region);
+    if (!loaded) awaitedRegion.value = region;
   };
   // Recentring lets go of the selected Country: the whole globe faces the point, sheet closed.
   const flyTo = (point: Point) => {
@@ -256,6 +321,7 @@ export const Globe = memo(function Globe({
     ref,
     () => ({
       select: (country, footprint) => scheduleOnUI(select, country, footprint),
+      selectRegion: (country, region) => scheduleOnUI(selectRegion, country, region),
       deselect: () => scheduleOnUI(deselect),
     }),
     [],
@@ -267,9 +333,19 @@ export const Globe = memo(function Globe({
   // usePathValue builds its one path, and the camera and layers are read directly.
   const builders = useSharedValue(useMemo(() => LAYERS.map(() => Skia.PathBuilder.Make()), []));
   const landPaths = useSharedValue(useMemo(() => LAYERS.map(() => Skia.Path.Make()), []));
-  // The selected Country's Regions, likewise, in the same layers.
-  const regionBuilders = useSharedValue(useMemo(() => LAYERS.map(() => Skia.PathBuilder.Make()), []));
-  const regionPaths = useSharedValue(useMemo(() => LAYERS.map(() => Skia.Path.Make()), []));
+  // The selected Country's Regions, likewise, in the same layers, and the paths of the
+  // selected Region and of the one before it.
+  const regionBuilders = useSharedValue(useMemo(() => Array.from({ length: REGION_PATHS }, () => Skia.PathBuilder.Make()), []));
+  const regionPaths = useSharedValue(useMemo(() => Array.from({ length: REGION_PATHS }, () => Skia.Path.Make()), []));
+  // The path each Region is traced into: its layer's, or one of its own while selected.
+  const regionTraced = useDerivedValue(() => {
+    const shownLayers = regionLayers.value;
+    if (!shownLayers) return null;
+    const traced: number[] = shownLayers.layers.slice();
+    if (leftRegion.value >= 0 && leftRegion.value < traced.length) traced[leftRegion.value] = LEFT_PATH;
+    if (selectedRegion.value >= 0 && selectedRegion.value < traced.length) traced[selectedRegion.value] = SELECTED_PATH;
+    return { country: shownLayers.country, traced };
+  });
   useDerivedValue(() => {
     if (viewport.value.width === 0) return;
     const sinks = builders.value;
@@ -279,12 +355,12 @@ export const Globe = memo(function Globe({
     let drawn = traceCountries(countryGeometry, camera, detailArea, sinks, layers.value);
     landPaths.value = sinks.map((sink) => sink.build());
     const shown = regions.value;
-    const shownLayers = regionLayers.value;
+    const shownLayers = regionTraced.value;
     // Their layers may arrive a frame before or after them: never draw one with the other's.
     if (fade.value > 0 && shown && shownLayers?.country === shown.country) {
       const regionSinks = regionBuilders.value;
       for (const sink of regionSinks) sink.reset();
-      drawn += traceCountries(shown.geometry, camera, detailArea, regionSinks, shownLayers.layers);
+      drawn += traceCountries(shown.geometry, camera, detailArea, regionSinks, shownLayers.traced);
       regionPaths.value = regionSinks.map((sink) => sink.build());
       notifyChange(regionPaths);
     }
@@ -292,6 +368,16 @@ export const Globe = memo(function Globe({
     buildMs.value = performance.now() - start;
     notifyChange(landPaths);
   });
+  // A Region asked for before its Country's Regions were there: the globe turns towards it.
+  useAnimatedReaction(
+    () => regions.value,
+    (shown) => {
+      const region = awaitedRegion.value;
+      if (region < 0 || !shown || shown.country !== selectedCountry.value) return;
+      awaitedRegion.value = -1;
+      flyOver(footprintOf(shown.geometry, region));
+    },
+  );
   // The selected Country's Regions fade in once they are there; deselecting fades them out.
   useAnimatedReaction(
     () => selectedCountry.value >= 0 && regions.value?.country === selectedCountry.value,
@@ -314,6 +400,11 @@ export const Globe = memo(function Globe({
   const regionVisited = useDerivedValue(() => regionPaths.value[LAYER.visited]);
   const regionWish = useDerivedValue(() => regionPaths.value[LAYER.wish]);
   const regionOutline = useDerivedValue(() => regionPaths.value[LAYER.outline]);
+  const selectedRegionPath = useDerivedValue(() => regionPaths.value[SELECTED_PATH]);
+  const leftRegionPath = useDerivedValue(() => regionPaths.value[LEFT_PATH]);
+  // Filled as their layer would be, so only their outline changes.
+  const selectedRegionFill = useDerivedValue(() => fillOf(regionLayers.value?.layers[selectedRegion.value]));
+  const leftRegionFill = useDerivedValue(() => fillOf(regionLayers.value?.layers[leftRegion.value]));
   const graticule = usePathValue((path) => {
     'worklet';
     if (viewport.value.width === 0) return;
@@ -372,7 +463,7 @@ export const Globe = memo(function Globe({
       if (country >= 0 && country === selectedCountry.value && shown?.country === country && fade.value > REGIONS_TAPPABLE) {
         const region = countryAt(shown.geometry, f, detailArea, e.x, e.y);
         if (region >= 0) {
-          selectRegion(region);
+          flyToRegion(shown, region);
           return;
         }
       }
@@ -545,9 +636,13 @@ export const Globe = memo(function Globe({
           <Group opacity={fade}>
             <Path path={regionVisited} color={colors.stateVisited} />
             <Path path={regionWish} color={colors.stateWish} />
-            {[regionLand, regionVisited, regionWish, regionOutline].map((path, i) => (
+            <Path path={selectedRegionPath} color={selectedRegionFill} />
+            <Path path={leftRegionPath} color={leftRegionFill} />
+            {[regionLand, regionVisited, regionWish, regionOutline, selectedRegionPath, leftRegionPath].map((path, i) => (
               <Path key={i} path={path} style="stroke" strokeWidth={REGION_STROKE} color={colors.paper0} />
             ))}
+            <Path path={leftRegionPath} style="stroke" strokeWidth={SELECTED_STROKE} color={colors.ink1} opacity={leftEmphasis} />
+            <Path path={selectedRegionPath} style="stroke" strokeWidth={SELECTED_STROKE} color={colors.ink1} opacity={emphasis} />
           </Group>
           <Group opacity={dotOpacity}>
             <Circle cx={dotX} cy={dotY} r={LOCATION_RADIUS + LOCATION_RING} color={colors.paper0} />
