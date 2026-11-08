@@ -96,9 +96,66 @@ export type BuiltRegions = {
   files: Map<string, RegionsData>;
 };
 
+/**
+ * Region names the source gets wrong: Greece's ADM2 has transliterated genitives
+ * (« Ipeiroy », « Kritis »), given here as the French names of its 13 regions and Mount Athos.
+ */
+const NAMES: Record<string, string> = {
+  '26713481B84884565940454': 'Macédoine-Orientale-et-Thrace',
+  '26713481B13719921321351': 'Macédoine-Centrale',
+  '26713481B79624114853188': 'Macédoine-Occidentale',
+  '26713481B784345685192': 'Épire',
+  '26713481B23289270995723': 'Thessalie',
+  '26713481B15414951167649': 'Grèce-Centrale',
+  '26713481B82557054028644': 'Îles Ioniennes',
+  '26713481B45081925310995': 'Grèce-Occidentale',
+  '26713481B43531359458460': 'Péloponnèse',
+  '26713481B5850386890635': 'Attique',
+  '26713481B43979888680650': 'Égée-Septentrionale',
+  '26713481B52894455575268': 'Égée-Méridionale',
+  '26713481B79456911033966': 'Crète',
+  '26713481B40019078264500': 'Mont Athos',
+};
+
+/** Words left in lower case when a name in capitals is set in title case. */
+const PARTICLES = new Set(['de', 'del', 'da', 'das', 'do', 'dos', 'y', 'e']);
+
+const inCapitals = (name: string) => /\p{L}{2}/u.test(name) && name === name.toLocaleUpperCase('und');
+
+/**
+ * The names Regions show, by shapeID: NAMES first; else the source's, with UTF-8 read as
+ * Latin-1 mended (« RegiÃ³n » → « Región »), and, in a source writing most of its names in
+ * capitals (Portugal, Romania), those set in title case (« LISBOA » → « Lisboa »). Elsewhere
+ * capitals are acronyms, and kept (« SNNPR », « NCR »).
+ */
+export function regionNames(features: RegionFeature[]): Map<string, string> {
+  const mended = features.map(({ properties: { shapeID, shapeName } }) => {
+    let name = shapeName.trim();
+    if (/[ÃÂ]/.test(name)) {
+      const decoded = Buffer.from(name, 'latin1').toString('utf8');
+      if (!decoded.includes('�')) name = decoded;
+    }
+    return [shapeID, name] as const;
+  });
+  const shouting = mended.filter(([, name]) => inCapitals(name)).length > mended.length / 2;
+  return new Map(
+    mended.map(([id, name]) => [
+      id,
+      NAMES[id] ??
+        (shouting && inCapitals(name)
+          ? name
+              .toLocaleLowerCase('und')
+              .replace(/\p{L}+/gu, (word, at: number) =>
+                at > 0 && PARTICLES.has(word) ? word : word[0].toLocaleUpperCase('und') + word.slice(1),
+              )
+          : name),
+    ]),
+  );
+}
+
 export function buildRegions(
   atlas: CountriesData,
-  featuresOf: (iso3: string) => RegionFeature[],
+  featuresOf: (source: Source) => RegionFeature[],
   sources: Source[] = SOURCES,
 ): BuiltRegions {
   const arcs = atlas.arcs.map(decodeArc);
@@ -121,8 +178,11 @@ export function buildRegions(
     // Tuvalu, say: no outline to cut its Regions to.
     if (atlasId(source.iso3) in NOT_ON_THE_MAP) continue;
     const candidates = [atlasId(source.iso3), ...(ALSO_FROM[source.iso3] ?? [])];
-    for (const feature of featuresOf(source.iso3)) {
-      const { shapeID: id, shapeName: name } = feature.properties;
+    const features = featuresOf(source);
+    const names = regionNames(features);
+    for (const feature of features) {
+      const id = feature.properties.shapeID;
+      const name = names.get(id)!;
       if (seen.has(id)) throw new Error(`${source.iso3}: Region ${id} twice`);
       seen.add(id);
       const shape = shapeOf(feature);
