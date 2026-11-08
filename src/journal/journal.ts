@@ -45,6 +45,11 @@ type Options = {
     containerOf(place: PlaceRef): PlaceRef | null;
     /** The Places at a point: its Country, and the Island or the Region it is in; null at sea. */
     locate(point: Point): Promise<PlaceIds | null>;
+    /**
+     * The Country a Country, Island or Region belongs to, by id: an Island's too, though its
+     * Status does not reach it. A City's is the Journal's to tell.
+     */
+    countryOf(place: PlaceRef): string;
   };
   /** Where Photos' files are copied; none is needed until a Photo is added. */
   files?: PhotoFiles;
@@ -610,6 +615,20 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
         .map((p) => p.visitDate!)
         .sort();
       return dates.length > 0 ? { from: dates[0], to: dates[dates.length - 1] } : null;
+    },
+    /**
+     * The Journal view's list: every Place with a Mark or content (an Unexplored one with a
+     * Note, say), grouped by the Country it belongs to, Islands included; in no set order.
+     */
+    byCountry(): { countryId: string; places: PlaceRef[] }[] {
+      const groups = new Map<string, PlaceRef[]>();
+      for (const record of places.values()) {
+        if (record.mark === null && !hasContent(record)) continue;
+        const countryId = record.level === 'city' ? cities.get(record.id)?.countryId : atlas.countryOf(record);
+        if (countryId === undefined) continue;
+        groups.set(countryId, [...(groups.get(countryId) ?? []), { level: record.level, id: record.id }]);
+      }
+      return [...groups].map(([countryId, list]) => ({ countryId, places: list }));
     },
     /** Every City in the Journal. */
     cities(): City[] {

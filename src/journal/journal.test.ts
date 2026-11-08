@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { openJournal, type PlaceRef } from './journal.ts';
+import { openJournal, type Journal, type PlaceRef } from './journal.ts';
 import { memoryDatabase } from './memoryDatabase.ts';
 import { memoryPhotoFiles } from './memoryPhotoFiles.ts';
 
@@ -25,6 +25,8 @@ const atlas = {
   containerOf: (place: PlaceRef): PlaceRef | null =>
     place.level === 'region' ? { level: 'country', id: REGIONS[place.id] } : null,
   locate,
+  countryOf: (place: PlaceRef): string =>
+    place.level === 'region' ? REGIONS[place.id] : place.id === 'i-okinawa' ? '392' : place.id,
 };
 const france = { level: 'country', id: '250' } as const;
 
@@ -669,4 +671,37 @@ test('a deleted Photo leaves its id behind for good, even after reopening the ap
   openJournal({ db, atlas, files }).deletePhoto(photo.id);
   const [next] = await openJournal({ db, atlas, files }).addPhotos(france, ['annecy.heic']);
   assert.notEqual(next.id, photo.id);
+});
+
+/** The Journal view's list, as « Country: level:id … » lines, Countries and Places sorted. */
+const listed = (j: Journal) =>
+  j
+    .byCountry()
+    .map(({ countryId, places }) => `${countryId}: ${places.map((p) => `${p.level}:${p.id}`).sort().join(' ')}`)
+    .sort();
+
+test('the Journal view lists the Places with a Mark or a Note, by Country, the Unexplored ones too', () => {
+  const j = journal();
+  j.mark(france, 'visited');
+  j.writeNote(japan, 'Les cerisiers en avril');
+  assert.deepEqual(listed(j), ['250: country:250', '392: country:392']);
+});
+
+test('the Journal view lists Regions, Islands and Cities under their Country, with Todos or Photos as content', async () => {
+  const j = openJournal({ db: memoryDatabase(), atlas, files: memoryPhotoFiles() });
+  j.mark(kansai, 'wish');
+  j.addTodo({ level: 'island', id: 'i-okinawa' }, 'Plonger à Kerama');
+  await j.addPhotos(naha, ['marché.heic']);
+  j.mark(kyoto, 'visited');
+  assert.deepEqual(listed(j), [`392: city:${naha.id} city:${kyoto.id} island:i-okinawa region:kansai`]);
+});
+
+test('the Journal view leaves out a Place holding only a choice of Cover photo, or a City whose Mark was removed', async () => {
+  const j = openJournal({ db: memoryDatabase(), atlas, files: memoryPhotoFiles() });
+  const [temple] = await j.addPhotos(kyoto, ['temple.heic']);
+  j.setCoverPhoto(japan, temple.id);
+  const osaka = { ...kyoto, id: '1853909', name: 'Ōsaka' };
+  j.mark(osaka, 'visited');
+  j.mark(osaka, null);
+  assert.deepEqual(listed(j), [`392: city:${kyoto.id}`]);
 });

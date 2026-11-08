@@ -67,6 +67,13 @@ export async function placeIdsAt(point: Point): Promise<PlaceIds | null> {
   return { countryId: at.country.id, ...(at.island && { islandId: at.island.id }), ...(at.region && { regionId: at.region.id }) };
 }
 
+/** The Country a Country, Island or Region belongs to, by id; an Island's though it reaches no Status there. */
+export function countryOf(place: PlaceRef): string {
+  if (place.level === 'region') return atlas.region(place.id)?.countryId ?? place.id;
+  if (place.level === 'island') return countries.find((c) => c.id === place.id)?.countryId ?? place.id;
+  return place.id;
+}
+
 /**
  * The Place whose Status a Place reaches: a Region's Country. An Island is inside nothing;
  * a City's is the Journal's to tell, from what it keeps of the City.
