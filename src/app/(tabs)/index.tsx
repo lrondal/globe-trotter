@@ -205,13 +205,13 @@ export default function GlobeScreen() {
     };
   }, [selected, sheetRef, city, journal, version]);
 
-  /** Flies to a City, framed with what is around it, and opens its sheet; in the selected Region, it stays selected. */
+  /** Flies to a City, framed with what is around it, and opens its sheet; its Region is selected with it. */
   const selectCity = useCallback((target: City) => {
     const country = indexOf(target.islandId ?? target.countryId);
     if (country < 0) return;
-    // Its Region, by its index in the Country's: the globe keeps it selected if it is.
+    // Its Region, by its index in the Country's, selected with it.
     const region = target.regionId && !target.islandId ? atlas.regionsOf(target.countryId).findIndex((r) => r.id === target.regionId) : -1;
-    asked.current = { country, city: target };
+    asked.current = { country, city: target, region: region >= 0 ? target.regionId! : undefined };
     globe.current?.selectCity(country, cityFootprint(target), region);
   }, []);
   /** Flies to a Region, framed on its own outline, and opens its sheet. */
