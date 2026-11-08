@@ -801,3 +801,178 @@ test('undo after wishing a Place newly marked takes the Wish back out, and its C
   assert.deepEqual(wished(j), []);
   assert.equal(j.city(naha.id), null);
 });
+
+/** The Planned date of the Plan of a Country; undefined when the Country is no Plan. */
+const plannedDate = (j: Journal, countryId: string) => j.plans().find((p) => p.countryId === countryId)?.plannedDate;
+
+test('a Plan’s Planned date survives reopening the app, and can be taken off again', () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas });
+  j.mark(japan, 'wish');
+  j.setPlannedDate('392', '2027-04');
+  assert.equal(plannedDate(openJournal({ db, atlas }), '392'), '2027-04');
+  j.setPlannedDate('392', null);
+  assert.equal(plannedDate(openJournal({ db, atlas }), '392'), null);
+});
+
+test('a Plan marked Visited takes its Planned date as Visit date, and undo gives the Planned date back', () => {
+  const j = journal(new Date(2026, 9, 18));
+  j.mark(japan, 'wish');
+  j.setPlannedDate('392', '2026-04');
+  j.mark(japan, 'visited');
+  assert.equal(j.place(japan)?.visitDate, '2026-04');
+  assert.equal(j.place(japan)?.plannedDate, null);
+  j.undo();
+  assert.equal(j.place(japan)?.mark, 'wish');
+  assert.equal(j.place(japan)?.visitDate, null);
+  assert.equal(plannedDate(j, '392'), '2026-04');
+});
+
+test('a Plan marked Visited before its Planned date is dated the current month', () => {
+  const j = journal(new Date(2026, 9, 18));
+  j.mark(japan, 'wish');
+  j.setPlannedDate('392', '2027-04');
+  j.mark(japan, 'visited');
+  assert.equal(j.place(japan)?.visitDate, '2026-10');
+});
+
+const okinawa = { level: 'island', id: 'i-okinawa' } as const;
+
+test('a Country that is a Plan through its Island only is kept in the Journal for its Planned date, without a row of its own', () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas });
+  j.mark(okinawa, 'wish');
+  assert.equal(j.status(japan), 'unexplored');
+  j.setPlannedDate('392', '2027-04');
+  const reopened = openJournal({ db, atlas });
+  assert.equal(plannedDate(reopened, '392'), '2027-04');
+  assert.deepEqual(listed(reopened), ['392: island:i-okinawa']);
+});
+
+test('a Country that stops being a Plan loses its Planned date, and undo gives it back', () => {
+  const j = journal();
+  j.mark(okinawa, 'wish');
+  j.setPlannedDate('392', '2027-04');
+  j.mark(okinawa, 'visited');
+  assert.equal(plannedDate(j, '392'), undefined);
+  assert.equal(j.place(japan), null);
+  j.undo();
+  assert.equal(plannedDate(j, '392'), '2027-04');
+});
+
+/** The Itinerary of a Country's Plan, as « level:id » keys in order. */
+const itinerary = (j: Journal, countryId: string) => j.itinerary(countryId).map((p) => `${p.level}:${p.id}`);
+
+test('the Itinerary lists a Plan’s Places marked Wish in the order they were wished, the Country aside', () => {
+  const j = journal();
+  j.mark(japan, 'wish');
+  j.mark(kyoto, 'wish');
+  j.mark(okinawa, 'wish');
+  j.mark(kanto, 'wish');
+  j.mark(france, 'wish');
+  assert.deepEqual(itinerary(j, '392'), [`city:${kyoto.id}`, 'island:i-okinawa', 'region:kanto']);
+  assert.deepEqual(itinerary(j, '250'), []);
+});
+
+test('a stop moved by hand keeps its place in the Itinerary after reopening the app', () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas });
+  j.mark(kyoto, 'wish');
+  j.mark(okinawa, 'wish');
+  j.mark(kanto, 'wish');
+  j.moveStop(kanto, 0);
+  assert.deepEqual(itinerary(openJournal({ db, atlas }), '392'), ['region:kanto', `city:${kyoto.id}`, 'island:i-okinawa']);
+});
+
+test('a stop no longer marked Wish leaves the Itinerary, and comes back last once wished again', () => {
+  const j = journal();
+  j.mark(kyoto, 'wish');
+  j.mark(okinawa, 'wish');
+  j.mark(kanto, 'wish');
+  j.mark(kyoto, 'visited');
+  assert.deepEqual(itinerary(j, '392'), ['island:i-okinawa', 'region:kanto']);
+  j.mark(kyoto, 'wish');
+  assert.deepEqual(itinerary(j, '392'), ['island:i-okinawa', 'region:kanto', `city:${kyoto.id}`]);
+});
+
+test('undoing a stop’s change of Mark gives it back its place in the Itinerary', () => {
+  const j = journal();
+  j.mark(kyoto, 'wish');
+  j.mark(okinawa, 'wish');
+  j.mark(kanto, 'wish');
+  j.mark(kyoto, null);
+  j.undo();
+  assert.deepEqual(itinerary(j, '392'), [`city:${kyoto.id}`, 'island:i-okinawa', 'region:kanto']);
+});
+
+const portugal = { level: 'country', id: '620' } as const;
+const planIds = (j: Journal) => j.plans().map((p) => p.countryId);
+
+test('the Plans come in the order they became Plans, the Country of a Wish Island too', () => {
+  const j = journal();
+  j.mark(france, 'wish');
+  j.mark(okinawa, 'wish');
+  j.mark(portugal, 'wish');
+  j.mark(japan, 'wish');
+  assert.deepEqual(planIds(j), ['250', '392', '620']);
+});
+
+test('Plans reordered by hand take the places they held among the others, and keep them after reopening the app', () => {
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas });
+  j.mark(france, 'wish');
+  j.mark(okinawa, 'wish');
+  j.mark(portugal, 'wish');
+  j.orderPlans(['620', '250']);
+  assert.deepEqual(planIds(openJournal({ db, atlas })), ['620', '392', '250']);
+});
+
+test('a Country that stops being a Plan, then is one again, comes last', () => {
+  const j = journal();
+  j.mark(france, 'wish');
+  j.mark(okinawa, 'wish');
+  j.mark(portugal, 'wish');
+  j.mark(france, null);
+  j.mark(france, 'wish');
+  assert.deepEqual(planIds(j), ['392', '620', '250']);
+  j.mark(france, null);
+  j.undo();
+  assert.deepEqual(planIds(j), ['392', '620', '250']);
+});
+
+test('undo gives back only what the change of Mark took: a Planned date set or Plans reordered since stay', () => {
+  const j = journal();
+  j.mark(france, 'wish');
+  j.mark(japan, 'wish');
+  j.setPlannedDate('392', '2027-04');
+  j.mark(japan, 'visited');
+  j.mark(okinawa, 'wish');
+  j.setPlannedDate('392', '2028-01');
+  j.orderPlans(['392', '250']);
+  j.undo();
+  assert.equal(plannedDate(j, '392'), undefined);
+  j.mark(okinawa, 'wish');
+  j.setPlannedDate('392', '2028-01');
+  j.mark(kanto, 'wish');
+  j.setPlannedDate('392', '2029-06');
+  j.orderPlans(['392', '250']);
+  j.undo();
+  assert.equal(plannedDate(j, '392'), '2029-06');
+  assert.deepEqual(planIds(j), ['392', '250']);
+});
+
+test('Plans reordered with a Country given twice are refused', () => {
+  const j = journal();
+  j.mark(france, 'wish');
+  j.mark(japan, 'wish');
+  assert.throws(() => j.orderPlans(['392', '392', '250']));
+  assert.deepEqual(planIds(j), ['250', '392']);
+});
+
+test('only a Plan has a Planned date to set', () => {
+  const j = journal();
+  j.mark(france, 'visited');
+  assert.throws(() => j.setPlannedDate('250', '2027-04'));
+  j.mark(france, 'wish');
+  assert.throws(() => j.setPlannedDate('250', '2027-13'));
+});

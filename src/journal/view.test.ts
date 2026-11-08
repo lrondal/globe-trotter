@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { PlaceRef } from './journal.ts';
-import { countrySections, countryView, journalView, rowLocation, wishlistView, wishNotice } from './view.ts';
+import { countrySections, countryView, journalView, planSummary, planTimeline, rowLocation, wishNotice } from './view.ts';
 
 const NAMES: Record<string, string> = {
   'country:250': 'France',
@@ -55,25 +55,6 @@ const wishLookup = {
   ...lookup,
   whereOf: (place: PlaceRef) => (place.level === 'country' ? '' : place.id === 'quito' ? 'Équateur' : 'Japon'),
 };
-
-test('the Wishlist view lists its Places by name, each with the Country it is in and the first line of its Note', () => {
-  const view = wishlistView(['city:quito', 'country:250', 'city:kyoto', 'region:kansai'].map(ref), wishLookup);
-  assert.deepEqual(
-    view.rows.map(({ name, meta }) => `${name} — ${meta}`),
-    ['France — Épinglé', 'Kansai — Japon', 'Kyōto — Japon · Le Pavillon d’or, au petit matin', 'Quito — Équateur'],
-  );
-});
-
-test('the Wishlist view counts its Places', () => {
-  assert.equal(wishlistView(['country:250', 'city:kyoto'].map(ref), wishLookup).count, '2 destinations épinglées');
-  assert.equal(wishlistView([ref('city:arles')], wishLookup).count, '1 destination épinglée');
-});
-
-test('the Wishlist view shows only the first line of a Note', () => {
-  const noteOf = (place: PlaceRef) => (place.id === 'arles' ? '\nLes arènes\nPuis la Camargue' : '');
-  const [row] = wishlistView([ref('city:arles')], { ...wishLookup, noteOf, whereOf: () => 'France' }).rows;
-  assert.equal(row.meta, 'France · Les arènes');
-});
 
 test('a search finds a Place by the words of its Note', () => {
   assert.deepEqual(shown('pavillon d or'), ['Japon: Kyōto']);
@@ -142,4 +123,48 @@ test('picking a Place to wish says it is now À visiter, with undo, or that it w
   assert.deepEqual(wishNotice('Kyōto', null), { message: 'Kyōto · À visiter', undoable: true });
   assert.deepEqual(wishNotice('Kyōto', 'wish'), { message: 'Kyōto · Déjà dans vos envies', undoable: false });
   assert.deepEqual(wishNotice('Kyōto', 'visited'), { message: 'Kyōto · Déjà visité', undoable: false });
+});
+
+test('a Plan’s card counts its stops and the Todos left of the Country and of its stops', () => {
+  assert.equal(planSummary(3, 2), '3 destinations · 2 à faire');
+  assert.equal(planSummary(1, 1), '1 destination · 1 à faire');
+  assert.equal(planSummary(0, 0), 'Tout le pays');
+});
+
+/** The Wishlist's timeline as « Group: countryId countryId… » lines. */
+const timeline = (plans: { countryId: string; plannedDate: string | null }[], today: string) =>
+  planTimeline(plans, today).map(({ title, plans: list }) => `${title}: ${list.map((p) => p.countryId).join(' ')}`);
+
+test('the Wishlist groups the Plans by Planned date: the next twelve months by date, then each later year, then « Un jour »', () => {
+  const plans = [
+    { countryId: 'pe', plannedDate: '2028-09' },
+    { countryId: 'jp', plannedDate: '2027-04' },
+    { countryId: 'is', plannedDate: null },
+    { countryId: 'ma', plannedDate: '2027-11' },
+    { countryId: 'it', plannedDate: '2026-12' },
+    { countryId: 'nz', plannedDate: '2028-01' },
+    { countryId: 'gr', plannedDate: null },
+  ];
+  assert.deepEqual(timeline(plans, '2026-11'), ['Prochainement: it jp', '2027: ma', '2028: pe nz', 'Un jour: is gr']);
+});
+
+test('a Plan whose Planned date has gone by comes first under « Prochainement », and Plans of a month keep the user’s order', () => {
+  const plans = [
+    { countryId: 'jp', plannedDate: '2027-04' },
+    { countryId: 'pt', plannedDate: '2026-03' },
+    { countryId: 'gr', plannedDate: '2027-04' },
+  ];
+  assert.deepEqual(timeline(plans, '2026-11'), ['Prochainement: pt jp gr']);
+});
+
+test('only the Plans of a later year or of « Un jour » are reordered by hand', () => {
+  const plans = [
+    { countryId: 'jp', plannedDate: '2027-04' },
+    { countryId: 'pe', plannedDate: '2028-09' },
+    { countryId: 'is', plannedDate: null },
+  ];
+  assert.deepEqual(
+    planTimeline(plans, '2026-11').map((group) => group.reorderable),
+    [false, true, true],
+  );
 });

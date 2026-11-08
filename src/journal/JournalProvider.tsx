@@ -21,6 +21,12 @@ type JournalState = {
   undo(): void;
   /** Of a Place marked Visited, YYYY-MM (see Journal.setVisitDate). */
   setVisitDate(place: PlaceRef, visitDate: string): void;
+  /** Of a Plan, YYYY-MM, or null for « Un jour » (see Journal.setPlannedDate). */
+  setPlannedDate(countryId: string, plannedDate: string | null): void;
+  /** Moves a stop of an Itinerary to `to`, an index in it (see Journal.moveStop). */
+  moveStop(place: PlaceRef, to: number): void;
+  /** Reorders some Plans among the places they held (see Journal.orderPlans). */
+  orderPlans(countryIds: readonly string[]): void;
   writeNote(place: PlaceRef | City, note: string): void;
   addTodo(place: PlaceRef | City, text: string): void;
   checkTodo(id: number, done: boolean): void;
@@ -79,6 +85,9 @@ export function JournalProvider({ children }: { children: ReactNode }) {
         if (journal.undo()) changed();
       },
       setVisitDate: writing(journal.setVisitDate),
+      setPlannedDate: writing(journal.setPlannedDate),
+      moveStop: writing(journal.moveStop),
+      orderPlans: writing(journal.orderPlans),
       writeNote: writing(journal.writeNote),
       addTodo: writing(journal.addTodo),
       checkTodo: writing(journal.checkTodo),
