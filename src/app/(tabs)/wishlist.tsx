@@ -4,7 +4,6 @@ import { router } from 'expo-router';
 import { useMemo } from 'react';
 import { FlatList, StyleSheet, Text } from 'react-native';
 
-import { countryOf } from '@/atlas';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import { ListScreen } from '@/components/ListScreen';
@@ -26,7 +25,7 @@ export default function WishlistScreen() {
     const noteOf = (place: PlaceRef) => journal.place(place)?.note ?? '';
     const whereOf = (place: PlaceRef) => {
       if (place.level === 'country') return '';
-      const countryId = place.level === 'city' ? journal.city(place.id)?.countryId : countryOf(place);
+      const countryId = journal.countryOf(place);
       return countryId ? nameOf({ level: 'country', id: countryId }) : '';
     };
     return wishlistView(journal.wishlist(), { nameOf, noteOf, whereOf });

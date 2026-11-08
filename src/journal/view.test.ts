@@ -64,7 +64,7 @@ test('the Wishlist view lists its Places by name, each with the Country it is in
   );
 });
 
-test('the Wishlist view counts its destinations', () => {
+test('the Wishlist view counts its Places', () => {
   assert.equal(wishlistView(['country:250', 'city:kyoto'].map(ref), wishLookup).count, '2 destinations épinglées');
   assert.equal(wishlistView([ref('city:arles')], wishLookup).count, '1 destination épinglée');
 });
