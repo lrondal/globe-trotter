@@ -59,8 +59,11 @@ import {
   fit,
   fly,
   holdZoom,
+  newFingerTrack,
   pinch,
   release,
+  startTrack,
+  trackFinger,
   zoomIn,
   zoomOut,
   type Point,
@@ -229,6 +232,9 @@ export const Globe = memo(function Globe({
   const pinchedThisTouch = useSharedValue(false);
   /** Points the finger left down after a pinch still has to move before it drags the globe. */
   const dragSlack = useSharedValue(0);
+  /** Where the finger dragged the globe lately, for how fast it is lifted. Filled in place. */
+  const [initialTrack] = useState(newFingerTrack);
+  const fingerTrack = useSharedValue(initialTrack);
   /** Fingers down at the last drag update. */
   const dragPointers = useSharedValue(0);
   const pinchStartZoom = useSharedValue(start.zoom);
@@ -713,6 +719,7 @@ export const Globe = memo(function Globe({
       stopFlight();
       pinchedThisTouch.value = false;
       dragSlack.value = 0;
+      startTrack(fingerTrack.value, performance.now());
     })
     .onStart((e) => {
       dragPointers.value = e.numberOfPointers;
@@ -732,11 +739,13 @@ export const Globe = memo(function Globe({
         return;
       }
       turnTo(drag(view(), e.changeX, e.changeY, globeRadius(viewport.value)));
+      // Only what turned the globe counts, so it coasts on as it turned under the finger.
+      trackFinger(fingerTrack.value, performance.now(), e.changeX, e.changeY);
     })
-    .onEnd((e) => {
+    .onEnd(() => {
       // Lifting the fingers after a pinch, without dragging since, leaves the globe still.
       if (pinchedThisTouch.value && dragSlack.value > 0) return;
-      spin.value = release(view(), e.velocityX, e.velocityY, globeRadius(viewport.value));
+      spin.value = release(view(), fingerTrack.value, performance.now(), globeRadius(viewport.value));
     });
   const pinchGesture = Gesture.Pinch()
     .onStart((e) => {
