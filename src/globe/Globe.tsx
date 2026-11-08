@@ -257,7 +257,8 @@ export const Globe = memo(function Globe({
   /** Whether the sheet shows a City, in the selected Region if it has one, rather than a Region or a Country. */
   const cityShown = useSharedValue(false);
 
-  const [detail, setDetail] = useState<Detail>('standard');
+  // Light detail is plenty for the globe and keeps it smooth while it turns and zooms fast.
+  const [detail, setDetail] = useState<Detail>('light');
   const [measures, setMeasures] = useState<Measures | null>(null);
   const measuring = measures !== null;
   const detailArea = DETAIL[detail];
@@ -741,10 +742,11 @@ export const Globe = memo(function Globe({
       // Only what turned the globe counts, so it coasts on as it turned under the finger.
       trackFinger(fingerTrack.value, performance.now(), e.changeX, e.changeY);
     })
-    .onEnd(() => {
+    .onEnd((e) => {
       // Lifting the fingers after a pinch, without dragging since, leaves the globe still.
       if (pinchedThisTouch.value && dragSlack.value > 0) return;
-      spin.value = release(view(), fingerTrack.value, performance.now(), globeRadius(viewport.value));
+      const measured = { x: e.velocityX, y: e.velocityY };
+      spin.value = release(view(), fingerTrack.value, performance.now(), measured, globeRadius(viewport.value));
     });
   const pinchGesture = Gesture.Pinch()
     .onStart((e) => {

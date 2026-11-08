@@ -215,17 +215,24 @@ const LIFT_LAG_MS = 16;
 const FLICK_DEAD_ZONE = 300;
 /**
  * The fastest a flick launches the globe, in points per second beyond the dead zone: at
- * zoom 1, about two thirds of a turn before it stops.
+ * zoom 1, under half a turn before it stops, so the globe never races past what is drawn.
  */
-const MAX_FLICK = 1200;
-
+const MAX_FLICK = 800;
 /**
- * The speed of the finger lifted at time `now`, in points per second: its average over the
- * VELOCITY_WINDOW_MS up to its last move, so the globe carries on as it turned under it.
+ * A finger lifted going slower than this share of its speed just before is stopping, not
+ * flicking: the globe stays.
  */
-export function fingerVelocity(track: FingerTrack, now: number): Offset {
+const SLOWING = 0.5;
+
+/** When the finger lifted at time `now` last counted as moving: its last move, or a frame before `now`. */
+function liftedAt(track: FingerTrack, now: number): number {
   'worklet';
-  const end = Math.max(track.t[track.newest], now - LIFT_LAG_MS);
+  return Math.max(track.t[track.newest], now - LIFT_LAG_MS);
+}
+
+/** The finger's average speed over the VELOCITY_WINDOW_MS ending at time `end`, in points per second. */
+function velocityUntil(track: FingerTrack, end: number): Offset {
+  'worklet';
   const start = end - VELOCITY_WINDOW_MS;
   return {
     x: ((trackAt(track, track.x, end) - trackAt(track, track.x, start)) * 1000) / VELOCITY_WINDOW_MS,
@@ -233,14 +240,32 @@ export function fingerVelocity(track: FingerTrack, now: number): Offset {
   };
 }
 
-/** The spin a finger leaves the globe with when lifted at time `now`; null if the globe stays still. */
-export function release(view: View, track: FingerTrack, now: number, radius: number): Spin | null {
+/**
+ * The speed of the finger lifted at time `now`, in points per second: its average over the
+ * VELOCITY_WINDOW_MS up to its last move, so the globe carries on as it turned under it.
+ */
+export function fingerVelocity(track: FingerTrack, now: number): Offset {
+  'worklet';
+  return velocityUntil(track, liftedAt(track, now));
+}
+
+/**
+ * The spin a finger leaves the globe with when lifted at time `now`; null if the globe stays
+ * still. `measured` is the finger's speed as iOS measured it, on the touches' own clock: the
+ * app times them as they reach it, all at once after a stalled frame, and would see a flick
+ * that was not, so the slower of the two counts.
+ */
+export function release(view: View, track: FingerTrack, now: number, measured: Offset, radius: number): Spin | null {
   'worklet';
   if (movedSince(track, now - STILL_MS) < STILL_PT) return null;
-  const v = fingerVelocity(track, now);
+  const end = liftedAt(track, now);
+  const v = velocityUntil(track, end);
+  const before = velocityUntil(track, end - VELOCITY_WINDOW_MS);
   const speed = Math.hypot(v.x, v.y);
+  if (speed < SLOWING * Math.hypot(before.x, before.y)) return null;
+  const surest = Math.min(speed, Math.hypot(measured.x, measured.y));
   // Only the speed beyond the dead zone carries on, so a launch grows from nothing.
-  const launchSpeed = Math.min(MAX_FLICK, Math.max(0, speed - FLICK_DEAD_ZONE));
+  const launchSpeed = Math.min(MAX_FLICK, Math.max(0, surest - FLICK_DEAD_ZONE));
   if (launchSpeed === 0) return null;
   const k = degreesPerPoint(view, radius);
   const scale = launchSpeed / speed;
