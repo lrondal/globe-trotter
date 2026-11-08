@@ -67,6 +67,9 @@ export type Place = PlaceRef & {
   coverPhotoId: number | null;
 };
 
+/** The Places of the Journal view belonging to one Country, by its id. */
+export type CountryGroup = { countryId: string; places: PlaceRef[] };
+
 /** A checklist item of a Place. */
 export type Todo = { id: number; text: string; done: boolean };
 
@@ -620,7 +623,7 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
      * The Journal view's list: every Place with a Mark or content (an Unexplored one with a
      * Note, say), grouped by the Country it belongs to, Islands included; in no set order.
      */
-    byCountry(): { countryId: string; places: PlaceRef[] }[] {
+    byCountry(): CountryGroup[] {
       const groups = new Map<string, PlaceRef[]>();
       for (const record of places.values()) {
         if (record.mark === null && !hasContent(record)) continue;

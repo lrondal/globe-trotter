@@ -1,17 +1,17 @@
-// The Carnet: the Journal view's list (see Journal.byCountry) as the screen shows it, named,
-// in order, and narrowed to a search.
+// The Journal view (« Carnet »): the Places of Journal.byCountry as the screen lists them,
+// named, in order, and narrowed to a search.
 import { fold } from '../atlas/cities.ts';
-import type { PlaceRef } from '../journal/journal.ts';
+import type { CountryGroup, PlaceRef } from './journal.ts';
 
-/** What the Carnet reads of a Place besides the Journal's list. */
+/** What the Journal view reads of a Place besides the Journal's list. */
 type Lookup = {
   nameOf(place: PlaceRef): string;
   /** Its Note, empty when it has none. */
   noteOf(place: PlaceRef): string;
 };
 
-export type CarnetRow = { place: PlaceRef; name: string };
-export type CarnetGroup = { countryId: string; name: string; rows: CarnetRow[] };
+export type ViewRow = { place: PlaceRef; name: string };
+export type ViewGroup = { countryId: string; name: string; rows: ViewRow[] };
 
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'fr');
 
@@ -20,18 +20,18 @@ const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompar
  * With a `query`, accents and case aside: all the Places of a Country whose name holds it,
  * and elsewhere those whose name or Note does.
  */
-export function carnetGroups(
-  journal: readonly { countryId: string; places: readonly PlaceRef[] }[],
+export function journalView(
+  listed: readonly CountryGroup[],
   { nameOf, noteOf }: Lookup,
   query = '',
-): CarnetGroup[] {
+): ViewGroup[] {
   const q = fold(query);
   const holds = (text: string) => q === '' || fold(text).includes(q);
-  return journal
+  return listed
     .map(({ countryId, places }) => {
       const name = nameOf({ level: 'country', id: countryId });
-      const matches = (row: CarnetRow) => holds(name) || holds(row.name) || holds(noteOf(row.place));
-      const isCountry = (row: CarnetRow) => row.place.level === 'country';
+      const matches = (row: ViewRow) => holds(name) || holds(row.name) || holds(noteOf(row.place));
+      const isCountry = (row: ViewRow) => row.place.level === 'country';
       const rows = places.map((place) => ({ place, name: nameOf(place) })).filter(matches);
       return {
         countryId,

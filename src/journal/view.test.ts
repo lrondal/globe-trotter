@@ -2,8 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { PlaceRef } from '../journal/journal.ts';
-import { carnetGroups } from './carnet.ts';
+import type { PlaceRef } from './journal.ts';
+import { journalView } from './view.ts';
 
 const NAMES: Record<string, string> = {
   'country:250': 'France',
@@ -26,17 +26,17 @@ const ref = (k: string): PlaceRef => {
   const [level, id] = k.split(':');
   return { level: level as PlaceRef['level'], id };
 };
-const journal = [
+const listed = [
   { countryId: '392', places: ['city:kyoto', 'region:kansai', 'country:392', 'island:i-okinawa'].map(ref) },
   { countryId: '31', places: ['city:quito'].map(ref) },
   { countryId: '250', places: ['city:arles', 'country:250'].map(ref) },
 ];
 
-/** The Carnet as « Country: Place, Place » lines. */
+/** The Journal view as « Country: Place, Place » lines. */
 const shown = (query?: string) =>
-  carnetGroups(journal, lookup, query).map(({ name, rows }) => `${name}: ${rows.map((row) => row.name).join(', ')}`);
+  journalView(listed, lookup, query).map(({ name, rows }) => `${name}: ${rows.map((row) => row.name).join(', ')}`);
 
-test('the Carnet lists its Countries by name, each with its own row first and the others by name', () => {
+test('the Journal view lists its Countries by name, each with its own row first and the others by name', () => {
   assert.deepEqual(shown(), ['Équateur: Quito', 'France: France, Arles', 'Japon: Japon, Kansai, Kyōto, Okinawa']);
 });
 

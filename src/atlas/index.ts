@@ -70,7 +70,7 @@ export async function placeIdsAt(point: Point): Promise<PlaceIds | null> {
 /** The Country a Country, Island or Region belongs to, by id; an Island's though it reaches no Status there. */
 export function countryOf(place: PlaceRef): string {
   if (place.level === 'region') return atlas.region(place.id)?.countryId ?? place.id;
-  if (place.level === 'island') return countries.find((c) => c.id === place.id)?.countryId ?? place.id;
+  if (place.level === 'island') return countries[placeIndex(place.id)]?.countryId ?? place.id;
   return place.id;
 }
 

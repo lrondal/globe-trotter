@@ -1,12 +1,10 @@
-// The Carnet: every Place with a Mark or content, grouped by Country (see Journal.byCountry).
-// A row opens the Place's Note; a group's map pin shows its Country on the globe.
+// The Journal view (« Carnet »): every Place with a Mark or content, grouped by Country (see
+// Journal.byCountry). A row opens the Place's Note; a group's map pin shows its Country on the globe.
 import { router } from 'expo-router';
 import { MapPin } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { SectionList, StyleSheet, Text, View } from 'react-native';
 
-import { atlas, countries } from '@/atlas';
-import { carnetGroups, type CarnetRow } from '@/carnet/carnet';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import { IconButton } from '@/components/IconButton';
@@ -17,6 +15,8 @@ import { STATUS_LABEL } from '@/components/StatusBadge';
 import { useShowOnGlobe } from '@/globe/ShowOnGlobeProvider';
 import type { PlaceRef } from '@/journal/journal';
 import { useJournal } from '@/journal/JournalProvider';
+import { placeName } from '@/journal/placeName';
+import { journalView, type ViewRow } from '@/journal/view';
 import { formatVisitDates } from '@/sheet/visitDate';
 import { colors, space, text } from '@/theme/tokens';
 
@@ -28,13 +28,9 @@ export default function JournalScreen() {
   // Read anew after every change to the Journal.
   const listed = useMemo(() => journal.byCountry(), [journal, version]);
   const groups = useMemo(() => {
-    const nameOf = (place: PlaceRef) => {
-      if (place.level === 'city') return journal.city(place.id)?.name ?? '';
-      if (place.level === 'region') return atlas.region(place.id)?.name ?? '';
-      return countries.find((c) => c.id === place.id)?.name ?? '';
-    };
+    const nameOf = (place: PlaceRef) => placeName(journal, place);
     const noteOf = (place: PlaceRef) => journal.place(place)?.note ?? '';
-    return carnetGroups(listed, { nameOf, noteOf }, query).map((group) => ({ ...group, data: group.rows }));
+    return journalView(listed, { nameOf, noteOf }, query).map((group) => ({ ...group, data: group.rows }));
   }, [journal, listed, query]);
 
   if (listed.length === 0) {
@@ -65,7 +61,7 @@ export default function JournalScreen() {
       <SearchInput value={query} onChangeText={setQuery} placeholder="Rechercher dans le carnet" />
       <SectionList
         sections={groups}
-        keyExtractor={(row: CarnetRow) => `${row.place.level}:${row.place.id}`}
+        keyExtractor={(row: ViewRow) => `${row.place.level}:${row.place.id}`}
         stickySectionHeadersEnabled={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
