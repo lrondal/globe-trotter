@@ -705,3 +705,30 @@ test('the Journal view leaves out a Place holding only a choice of Cover photo, 
   j.mark(osaka, null);
   assert.deepEqual(listed(j), [`392: city:${kyoto.id}`]);
 });
+
+/** The Wishlist as sorted « level:id » keys. */
+const wished = (j: Journal) =>
+  j
+    .wishlist()
+    .map((p) => `${p.level}:${p.id}`)
+    .sort();
+
+test('the Wishlist lists the Countries, Islands, Regions and Cities marked Wish', () => {
+  const j = journal();
+  j.mark(france, 'wish');
+  j.mark(kansai, 'wish');
+  j.mark({ level: 'island', id: 'i-okinawa' }, 'wish');
+  j.mark(kyoto, 'wish');
+  assert.deepEqual(wished(j), [`city:${kyoto.id}`, 'country:250', 'island:i-okinawa', 'region:kansai']);
+});
+
+test('the Wishlist leaves out a Place that is Wish only through a Place inside it, and one no longer marked Wish', () => {
+  const j = journal();
+  j.mark(kyoto, 'wish');
+  j.mark(france, 'wish');
+  j.mark(france, 'visited');
+  j.mark(kanto, 'wish');
+  j.mark(kanto, null);
+  assert.equal(j.status(japan), 'wish');
+  assert.deepEqual(wished(j), [`city:${kyoto.id}`]);
+});

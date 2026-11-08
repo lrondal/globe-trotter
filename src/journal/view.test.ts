@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { PlaceRef } from './journal.ts';
-import { journalView } from './view.ts';
+import { journalView, wishlistView } from './view.ts';
 
 const NAMES: Record<string, string> = {
   'country:250': 'France',
@@ -49,6 +49,30 @@ test('a search keeps the Places whose name holds it, accents and case aside, and
 test('a search for a Country keeps all of its Places, though it has no row of its own', () => {
   assert.deepEqual(shown('equateur'), ['Équateur: Quito']);
   assert.deepEqual(shown('Jap'), ['Japon: Japon, Kansai, Kyōto, Okinawa']);
+});
+
+const wishLookup = {
+  ...lookup,
+  whereOf: (place: PlaceRef) => (place.level === 'country' ? '' : place.id === 'quito' ? 'Équateur' : 'Japon'),
+};
+
+test('the Wishlist view lists its Places by name, each with the Country it is in and the first line of its Note', () => {
+  const view = wishlistView(['city:quito', 'country:250', 'city:kyoto', 'region:kansai'].map(ref), wishLookup);
+  assert.deepEqual(
+    view.rows.map(({ name, meta }) => `${name} — ${meta}`),
+    ['France — Épinglé', 'Kansai — Japon', 'Kyōto — Japon · Le Pavillon d’or, au petit matin', 'Quito — Équateur'],
+  );
+});
+
+test('the Wishlist view counts its destinations', () => {
+  assert.equal(wishlistView(['country:250', 'city:kyoto'].map(ref), wishLookup).count, '2 destinations épinglées');
+  assert.equal(wishlistView([ref('city:arles')], wishLookup).count, '1 destination épinglée');
+});
+
+test('the Wishlist view shows only the first line of a Note', () => {
+  const noteOf = (place: PlaceRef) => (place.id === 'arles' ? '\nLes arènes\nPuis la Camargue' : '');
+  const [row] = wishlistView([ref('city:arles')], { ...wishLookup, noteOf, whereOf: () => 'France' }).rows;
+  assert.equal(row.meta, 'France · Les arènes');
 });
 
 test('a search finds a Place by the words of its Note', () => {

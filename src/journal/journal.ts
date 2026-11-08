@@ -633,6 +633,10 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
       }
       return [...groups].map(([countryId, list]) => ({ countryId, places: list }));
     },
+    /** The Wishlist: every Place whose own Mark is Wish, whatever its level; in no set order. */
+    wishlist(): PlaceRef[] {
+      return [...places.values()].filter((record) => record.mark === 'wish').map(({ level, id }) => ({ level, id }));
+    },
     /** Every City in the Journal. */
     cities(): City[] {
       return [...cities.values()];
