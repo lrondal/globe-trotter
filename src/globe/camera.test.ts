@@ -7,13 +7,17 @@ import {
   centerOn,
   coast,
   drag,
+  fingerVelocity,
   fit,
   fly,
   holdZoom,
   MAX_ZOOM,
   MIN_ZOOM,
+  newFingerTrack,
   pinch,
   release,
+  startTrack,
+  trackFinger,
   zoomIn,
   zoomOut,
   type Shot,
@@ -130,6 +134,94 @@ test('holding + zooms at the same pace at every zoom, a tenfold every second', (
   }
 });
 
+/** 120 Hz, as a ProMotion iPhone reports the finger. */
+const TOUCH_MS = 1000 / 120;
+
+/** A stretch of a drag: the finger moving at (vx, vy) pt/s for ms milliseconds. */
+type Leg = [vx: number, vy: number, ms: number];
+
+/** iOS measuring a finger held still before it lifted. */
+const NO_SPEED = { x: 0, y: 0 };
+
+/**
+ * A finger that lands at time 0 and moves at each (vx, vy) pt/s for its duration in ms, one
+ * after the other, reported every TOUCH_MS. Returns the track and when the last leg ended.
+ */
+function finger(...legs: Leg[]) {
+  const track = newFingerTrack();
+  let t = 0;
+  startTrack(track, t);
+  for (const [vx, vy, ms] of legs) {
+    // A finger at rest sends nothing.
+    if (vx === 0 && vy === 0) {
+      t += ms;
+      continue;
+    }
+    for (let elapsed = TOUCH_MS; elapsed <= ms + 1e-9; elapsed += TOUCH_MS) {
+      t += TOUCH_MS;
+      trackFinger(track, t, (vx * TOUCH_MS) / 1000, (vy * TOUCH_MS) / 1000);
+    }
+  }
+  return { track, end: t };
+}
+
+test('lifting a finger held still for 80 ms leaves the globe still, at any zoom', () => {
+  for (const zoom of [1, 30, 1000]) {
+    const { track, end } = finger([-1500, 0, 300], [0, 0, 80]);
+    assert.equal(release({ ...europe, zoom }, track, end, NO_SPEED, RADIUS), null, `at ${zoom}×`);
+  }
+});
+
+test('lifted during a steady drag, the finger is going at the speed it dragged, even a frame late', () => {
+  for (const lag of [0, 4, 16]) {
+    const { track, end } = finger([-700, 250, 300]);
+    const v = fingerVelocity(track, end + lag);
+    assert.ok(Math.abs(v.x + 700) < 1 && Math.abs(v.y - 250) < 1, `${lag} ms late: (${v.x}, ${v.y}) pt/s`);
+  }
+});
+
+test('the release speed is the finger’s in its last 50 ms, not over the whole drag', () => {
+  const { track, end } = finger([200, 0, 400], [1200, 0, 100]);
+  assert.ok(Math.abs(fingerVelocity(track, end).x - 1200) < 1);
+});
+
+test('a finger slowing to a stop before lifting releases slower and slower', () => {
+  const speeds = [0, 20, 40, 70].map((rest) => fingerVelocity(finger([1000, 0, 300], [0, 0, rest]).track, rest + 300).x);
+  assert.ok(Math.abs(speeds[0] - 1000) < 1, `lifted at once: ${speeds[0]} pt/s`);
+  for (let i = 1; i < speeds.length; i++) assert.ok(speeds[i] < speeds[i - 1], `${speeds}`);
+  assert.equal(speeds[3], 0);
+});
+
+/** The spin a finger lifted at the end of the drag leaves the globe with, iOS measuring the same speed. */
+function lift(view: View, ...legs: Leg[]) {
+  const { track, end } = finger(...legs);
+  return release(view, track, end, fingerVelocity(track, end), RADIUS);
+}
+
+/** How fast, in °/s, the globe spins once a finger is lifted at the end of the drag. */
+function launch(view: View, ...legs: Leg[]) {
+  const spin = lift(view, ...legs);
+  return spin ? Math.hypot(spin.lon, spin.lat) : 0;
+}
+
+test('lifting a finger after a slow drag leaves the globe still', () => {
+  for (const zoom of [1, 1000]) assert.equal(launch({ ...europe, zoom }, [200, -100, 400]), 0, `at ${zoom}×`);
+});
+
+test('only a flick launches the globe, faster and faster from a standstill as the flick gets faster', () => {
+  const equator = { lon: 0, lat: 0, zoom: 1 };
+  let previous = 0;
+  let firstFlick = Infinity;
+  for (let speed = 0; speed <= 1500; speed += 10) {
+    const spin = launch(equator, [speed, 0, 300]);
+    if (spin > 0) firstFlick = Math.min(firstFlick, speed);
+    // 10 pt/s more on the finger is 3.8°/s more on a 197 pt globe: never a jump.
+    assert.ok(spin >= previous - 1e-9 && spin - previous < 4, `${speed} pt/s spins at ${spin}°/s, ${previous}°/s before`);
+    previous = spin;
+  }
+  assert.ok(firstFlick >= 250 && firstFlick <= 400, `flicks start at ${firstFlick} pt/s`);
+});
+
 /** Lets the globe coast at 60 fps until it stops; returns where it stopped and how many frames it took. */
 function coastToRest(view: View, spin: Spin | null) {
   let frames = 0;
@@ -140,41 +232,81 @@ function coastToRest(view: View, spin: Spin | null) {
   return { view, frames, stopped: spin === null };
 }
 
-test('after a fling the globe keeps turning the same way, slows down and stops within seconds', () => {
+/** The spin a finger flicked at (vx, vy) pt/s for 150 ms leaves the globe with. */
+function flick(view: View, vx: number, vy: number) {
+  return lift(view, [vx, vy, 150]);
+}
+
+test('a finger slowing down as it lifts leaves the globe still, even while still going fast', () => {
+  for (const zoom of [1, 1000]) assert.equal(launch({ ...europe, zoom }, [2000, 0, 200], [700, 0, 60]), 0, `at ${zoom}×`);
+});
+
+test('a finger speeding up as it lifts launches the globe', () => {
+  assert.ok(launch(europe, [400, 0, 100], [1200, 0, 60]) > 0);
+});
+
+test('when the finger’s moves reach the app all at once, the speed iOS measured on them counts', () => {
+  // A stalled frame delivers the moves late and together: the app sees a flick that was not.
+  const { track, end } = finger([1500, 0, 200]);
+  assert.equal(release(europe, track, end, NO_SPEED, RADIUS), null);
+  const measured = release(europe, track, end, { x: 700, y: 0 }, RADIUS);
+  assert.ok(measured, 'iOS measured a flick');
+  // 700 pt/s is 400 beyond the dead zone; the app saw 1500, which the cap brings down.
+  const seen = flick(europe, 1500, 0);
+  assert.ok(seen && measured.lon / seen.lon < 0.9, `${measured.lon} vs ${seen?.lon} °/s`);
+});
+
+test('after a flick the globe keeps turning the same way, slows down and stops within seconds', () => {
   const flung = { lon: 10, lat: 0, zoom: 1 };
-  // Finger flung leftwards at 800 pt/s: the globe turns east.
-  const { view, frames, stopped } = coastToRest(flung, release(flung, -800, 0, RADIUS));
+  // Finger flicked leftwards: the globe turns east.
+  const spin = flick(flung, -1100, 0);
+  assert.ok(spin && spin.lon > 0 && spin.lat === 0, `spin ${JSON.stringify(spin)}`);
+  const { view, frames, stopped } = coastToRest(flung, spin);
   assert.ok(stopped, 'the globe stops');
-  assert.ok(frames > 10 && frames < 180, `stopped after ${frames} frames`);
-  // 800 pt/s is 304.6 °/s; decaying by e every 325 ms it travels about 99° more.
-  assert.ok(view.lon > 100 && view.lon < 130, `coasted to ${view.lon}°`);
+  assert.ok(frames > 60 && frames < 240, `stopped after ${frames} frames`);
+  // Decaying by e every 500 ms, as UIKit's 0.998 per ms, it coasts half a second of its launch.
+  const coasted = view.lon - flung.lon;
+  assert.ok(Math.abs(coasted / (spin.lon * 0.5) - 1) < 0.05, `coasted ${coasted}° at ${spin.lon}°/s`);
   assert.equal(view.lat, 0);
 });
 
-test('zoomed in, a fling coasts on screen as far as with the whole globe and comes gently to rest', () => {
+test('zoomed in, a flick coasts on screen as far as with the whole globe and comes gently to rest', () => {
   const flung = { lon: 7.42, lat: 43.74, zoom: 1000 };
-  // Finger flung leftwards at 800 pt/s: about 800 × 0.325 = 260 pt more once lifted.
+  const shownX = (view: View) => onScreen({ view: flung, lift: 0 }, view.lon, view.lat).x - 201;
+  let spin = flick(flung, -1100, 0);
+  assert.ok(spin);
+  // How fast the ground moves on screen as the finger lifts, in pt/s.
+  const launched = shownX(coast(flung, spin, 1).view) * 1000;
   let view: View = flung;
-  let spin: Spin | null = release(flung, -800, 0, RADIUS);
   let lastStep = Infinity;
   let frames = 0;
   while (spin && frames < 600) {
-    const before = onScreen({ view: flung, lift: 0 }, view.lon, view.lat).x;
+    const before = shownX(view);
     ({ view, spin } = coast(view, spin, 1000 / 60));
-    lastStep = Math.abs(onScreen({ view: flung, lift: 0 }, view.lon, view.lat).x - before);
+    lastStep = Math.abs(shownX(view) - before);
     frames++;
   }
   assert.ok(spin === null && frames > 60, `stopped after ${frames} frames`);
-  const travelled = onScreen({ view: flung, lift: 0 }, view.lon, view.lat).x - 201;
-  assert.ok(travelled > 230 && travelled < 270, `coasted ${travelled} pt`);
+  assert.ok(Math.abs(shownX(view) / (launched * 0.5) - 1) < 0.05, `coasted ${shownX(view)} pt at ${launched} pt/s`);
   assert.ok(lastStep < 0.2, `last frame moved ${lastStep} pt`);
 });
 
-test('a fling never tilts the view past 60° S', () => {
+test('a violent flick launches the globe no faster than a brisk one, less than half a turn', () => {
+  // From 170° W, so the globe turning east does not cross the antimeridian before 350°.
+  const flung = { lon: -170, lat: 0, zoom: 1 };
+  const brisk = flick(flung, -6000, 0);
+  const violent = flick(flung, -20000, 0);
+  assert.ok(brisk && violent);
+  assert.ok(Math.abs(violent.lon - brisk.lon) < 1e-9, `${brisk.lon}°/s then ${violent.lon}°/s`);
+  const coasted = coastToRest(flung, violent).view.lon - flung.lon;
+  assert.ok(coasted > 0 && coasted < 180, `coasted ${coasted}°`);
+});
+
+test('a flick never tilts the view past 60° S', () => {
   const flung = { lon: 10, lat: 50, zoom: 1 };
   let lowest = Infinity;
   let view = flung;
-  let spin: Spin | null = release(flung, 0, -5000, RADIUS);
+  let spin: Spin | null = flick(flung, 0, -5000);
   while (spin) {
     ({ view, spin } = coast(view, spin, 1000 / 60));
     lowest = Math.min(lowest, view.lat);
