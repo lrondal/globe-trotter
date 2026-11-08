@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { PlaceRef } from './journal.ts';
-import { journalView, wishlistView } from './view.ts';
+import { countryView, journalView, wishlistView } from './view.ts';
 
 const NAMES: Record<string, string> = {
   'country:250': 'France',
@@ -78,4 +78,38 @@ test('the Wishlist view shows only the first line of a Note', () => {
 test('a search finds a Place by the words of its Note', () => {
   assert.deepEqual(shown('pavillon d or'), ['Japon: Kyōto']);
   assert.deepEqual(shown('arenes'), ['France: Arles']);
+});
+
+test('a Country’s page view lists its Regions, its Islands and their Cities, and its other Cities, each by name', () => {
+  const names: Record<string, string> = {
+    'region:kansai': 'Kansai',
+    'region:hokkaido': 'Hokkaidō',
+    'island:i-okinawa': 'Okinawa',
+    'island:i-sado': 'Sado',
+    'city:kyoto': 'Kyōto',
+    'city:osaka': 'Ōsaka',
+    'city:kobe': 'Kobe',
+    'city:naha': 'Naha',
+    'city:sapporo': 'Sapporo',
+    'city:aomori': 'Aomori',
+  };
+  const view = countryView(
+    {
+      regions: [
+        { place: { level: 'region', id: 'kansai' }, cities: ['city:osaka', 'city:kyoto', 'city:kobe'].map(ref) },
+        { place: { level: 'region', id: 'hokkaido' }, cities: [] },
+      ],
+      islands: [
+        { place: { level: 'island', id: 'i-sado' }, cities: [] },
+        { place: { level: 'island', id: 'i-okinawa' }, cities: [ref('city:naha')] },
+      ],
+      otherCities: ['city:sapporo', 'city:aomori'].map(ref),
+    },
+    { nameOf: (place) => names[key(place)] },
+  );
+  const lines = (branches: typeof view.regions) =>
+    branches.map(({ row, cities }) => [row.name, ...cities.map((city) => city.name)].join(', '));
+  assert.deepEqual(lines(view.regions), ['Hokkaidō', 'Kansai, Kobe, Kyōto, Ōsaka']);
+  assert.deepEqual(lines(view.islands), ['Okinawa, Naha', 'Sado']);
+  assert.deepEqual(view.otherCities.map((row) => row.name), ['Aomori', 'Sapporo']);
 });

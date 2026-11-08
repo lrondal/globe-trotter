@@ -130,14 +130,17 @@ export function openAtlas({ countries: data, regionIndex, loadRegions, loadCitie
     /**
      * The Places whose name, or a word of it, starts with `query`, accents and case aside.
      * Cities rank by population, those found by their name before those found by an alias;
-     * the others alphabetically. Those found by their start come first.
+     * the others alphabetically. Those found by their start come first. Within a Country,
+     * only its Islands, Regions and Cities, and no Country.
      */
-    async search(query: string): Promise<SearchResults> {
+    async search(query: string, within?: { countryId: string }): Promise<SearchResults> {
       const q = fold(query);
       if (q === '') return { countries: [], islands: [], regions: [], cities: [] };
-      const pick = <T>(list: { place: T; key: string }[], limit: number) => {
+      const inside = (place: { countryId?: string }) => !within || place.countryId === within.countryId;
+      const pick = <T extends { countryId?: string }>(list: { place: T; key: string }[], limit: number) => {
         const found: T[][] = [[], []];
         for (const { place, key } of list) {
+          if (!inside(place)) continue;
           const rank = rankOf(key, q);
           if (rank !== null) found[rank].push(place);
         }
@@ -151,6 +154,7 @@ export function openAtlas({ countries: data, regionIndex, loadRegions, loadCitie
       for (const c of read) {
         const { city, keys } = list[c];
         if (found[0].length === SEARCH_LIMIT.cities) break;
+        if (!inside(city)) continue;
         const rank = rankOf(keys[0], q);
         if (rank !== null) {
           found[rank].push(city);
@@ -161,7 +165,7 @@ export function openAtlas({ countries: data, regionIndex, loadRegions, loadCitie
         if (alias > 0) found[2].push({ ...city, alias: city.aliases[alias - 1] });
       }
       return {
-        countries: pick(searchable.countries, SEARCH_LIMIT.countries),
+        countries: within ? [] : pick(searchable.countries, SEARCH_LIMIT.countries),
         islands: pick(searchable.islands, SEARCH_LIMIT.islands),
         regions: pick(searchable.regions, SEARCH_LIMIT.regions),
         cities: found.flat().slice(0, SEARCH_LIMIT.cities),

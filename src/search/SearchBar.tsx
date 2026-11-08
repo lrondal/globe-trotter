@@ -1,11 +1,14 @@
 // « Rechercher un lieu »: the search pill over the globe, and what it finds under it, grouped
 // Pays / Îles / Régions / Villes. The Atlas searches on the phone, offline, as the user types.
+// On a Country's page, it searches that Country only, its Custom Cities included.
 import { useEffect, useState } from 'react';
 import { Keyboard, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 
 import { atlas, countries, type CityMatch, type CountryRecord, type RegionRecord, type SearchResults } from '@/atlas';
+import { fold } from '@/atlas/cities';
 import { SearchInput } from '@/components/SearchInput';
+import type { City } from '@/journal/journal';
 import { colors, layout, radius, shadow, space, text } from '@/theme/tokens';
 
 /** A Place picked among the results. */
@@ -14,7 +17,13 @@ export type Picked =
   | { level: 'region'; place: RegionRecord }
   | { level: 'city'; place: CityMatch };
 
-type Props = { onPick: (picked: Picked) => void };
+type Props = {
+  onPick: (picked: Picked) => void;
+  /** Searches only this Country, and its Custom Cities as well as the list's. */
+  within?: { countryId: string; customCities: readonly City[] };
+  placeholder?: string;
+  autoFocus?: boolean;
+};
 
 /** A result as listed: its name, and where it is. */
 type Row = { key: string; name: string; meta?: string; picked: Picked };
@@ -28,7 +37,19 @@ const whereIs = (city: CityMatch) =>
     .filter(Boolean)
     .join(' · ');
 
-export function SearchBar({ onPick }: Props) {
+/** The Custom Cities whose name, or a word of it, starts with `query`, as the search lists Cities. */
+function customMatches(cities: readonly City[], query: string): CityMatch[] {
+  const q = fold(query);
+  if (q === '') return [];
+  return cities
+    .filter((city) => {
+      const name = fold(city.name);
+      return name.startsWith(q) || name.includes(` ${q}`);
+    })
+    .map(({ id, name, lon, lat, countryId, islandId, regionId }) => ({ id, name, aliases: [], lon, lat, countryId, islandId, regionId }));
+}
+
+export function SearchBar({ onPick, within, placeholder = 'Rechercher un lieu', autoFocus }: Props) {
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
   const [results, setResults] = useState<SearchResults | null>(null);
@@ -37,15 +58,19 @@ export function SearchBar({ onPick }: Props) {
   useEffect(() => {
     void atlas.loadCities();
   }, []);
+  const countryId = within?.countryId;
+  const customCities = within?.customCities;
   useEffect(() => {
     let current = true;
-    atlas.search(query).then((found) => {
-      if (current) setResults(found);
+    atlas.search(query, countryId ? { countryId } : undefined).then((found) => {
+      if (!current) return;
+      const custom = customCities ? customMatches(customCities, query) : [];
+      setResults(custom.length > 0 ? { ...found, cities: [...custom, ...found.cities] } : found);
     });
     return () => {
       current = false;
     };
-  }, [query]);
+  }, [query, countryId, customCities]);
 
   const pick = (picked: Picked) => {
     Keyboard.dismiss();
@@ -71,7 +96,8 @@ export function SearchBar({ onPick }: Props) {
         onChangeText={setQuery}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
-        placeholder="Rechercher un lieu"
+        placeholder={placeholder}
+        autoFocus={autoFocus}
       />
       {open && (
         <View style={styles.results}>

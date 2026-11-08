@@ -732,3 +732,45 @@ test('the Wishlist leaves out a Place that is Wish only through a Place inside i
   assert.equal(j.status(japan), 'wish');
   assert.deepEqual(wished(j), [`city:${kyoto.id}`]);
 });
+
+/** A Country's page, as « level:id: city:id … » lines, then « autres: city:id … », all sorted. */
+const page = (j: Journal, countryId: string) => {
+  const { regions, islands, otherCities } = j.countryPage(countryId);
+  const ids = (cities: readonly PlaceRef[]) => cities.map((c) => `city:${c.id}`).sort().join(' ');
+  return [
+    ...[...regions, ...islands].map(({ place, cities }) => `${place.level}:${place.id}: ${ids(cities)}`.trim()).sort(),
+    `autres: ${ids(otherCities)}`.trim(),
+  ];
+};
+
+test('a Country’s page lists its Regions with a Mark or content, each with its Cities with a Mark or content', () => {
+  const j = journal();
+  const osaka = { ...kyoto, id: '1853909', name: 'Ōsaka' };
+  j.mark(kyoto, 'visited');
+  j.writeNote(osaka, 'Dōtonbori la nuit');
+  j.mark(kanto, 'wish');
+  j.mark(france, 'visited');
+  assert.deepEqual(page(j, '392'), [`region:kansai: city:${osaka.id} city:${kyoto.id}`, 'region:kanto:', 'autres:']);
+});
+
+test('a Country’s page lists a City on an Island under the Island, never a Region, and one in neither under « Autres villes »', () => {
+  const j = journal();
+  const onOkinawa = { ...naha, id: '1861416', name: 'Itoman', regionId: 'kansai' };
+  const sapporo = { ...kyoto, id: '2128295', name: 'Sapporo', regionId: undefined };
+  const unmarked = { ...kyoto, id: '1853909', name: 'Ōsaka' };
+  j.mark(naha, 'wish');
+  j.mark(onOkinawa, 'visited');
+  j.mark(sapporo, 'wish');
+  j.mark(unmarked, 'visited');
+  j.mark(unmarked, null);
+  j.mark(japan, 'visited');
+  assert.deepEqual(page(j, '392'), [`island:i-okinawa: city:${naha.id} city:${onOkinawa.id}`, `autres: city:${sapporo.id}`]);
+});
+
+test('a Country’s page lists an Island with a Mark or content, without Cities, and nothing of another Country', () => {
+  const j = journal();
+  j.addTodo({ level: 'island', id: 'i-okinawa' }, 'Plonger à Kerama');
+  j.mark({ ...kyoto, id: '2988507', name: 'Paris', countryId: '250', regionId: undefined }, 'wish');
+  assert.deepEqual(page(j, '392'), ['island:i-okinawa:', 'autres:']);
+  assert.deepEqual(page(j, '250'), ['autres: city:2988507']);
+});
