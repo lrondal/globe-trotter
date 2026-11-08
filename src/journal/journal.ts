@@ -495,10 +495,9 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
       // A Country marked Visited has been to: its Planned date gives way to the Visit date.
       save({ ...before, mark, visitDate, position, plannedDate: mark === 'visited' ? null : before.plannedDate });
       if (countryId === undefined) return;
-      const ref = { level: 'country', id: countryId } as const;
-      // A new Plan comes last; a Country no longer a Plan has nothing planned.
-      if (!planIds().has(countryId)) save({ ...recordOf(ref), plannedDate: null, position: null });
-      else if (!wasPlan) save({ ...recordOf(ref), position: nextPosition(plans()) });
+      // A new Plan comes last.
+      dropPlanIfGone(countryId);
+      if (!wasPlan && planIds().has(countryId)) save({ ...recordOf({ level: 'country', id: countryId }), position: nextPosition(plans()) });
     });
     const after = countryId === undefined ? null : recordOf({ level: 'country', id: countryId });
     undoable = {
@@ -509,6 +508,29 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
       entered,
       country: country && after && { id: country.id, before: planFieldsOf(country), after: planFieldsOf(after) },
     };
+  };
+
+  /**
+   * Deletes a Place's Todos and Photos, and the choices of Cover photo among them, inside a
+   * transaction. Returns the names of the Photos' files, to remove once it is over.
+   */
+  const deleteContent = (place: PlaceRef): string[] => {
+    const key = keyOf(place);
+    const gone = photos.get(key) ?? [];
+    db.run('DELETE FROM todos WHERE level = ? AND place_id = ?', [place.level, place.id]);
+    db.run('DELETE FROM photos WHERE level = ? AND place_id = ?', [place.level, place.id]);
+    todos.delete(key);
+    photos.delete(key);
+    const ids = new Set(gone.map((photo) => photo.id));
+    for (const record of [...places.values()]) {
+      if (record.coverPhotoId !== null && ids.has(record.coverPhotoId)) save({ ...record, coverPhotoId: null });
+    }
+    return gone.flatMap(({ file, thumbnail }) => [file, thumbnail]);
+  };
+
+  /** A Country no longer a Plan has nothing planned: its Planned date and place among the Plans go. */
+  const dropPlanIfGone = (countryId: string) => {
+    if (!planIds().has(countryId)) save({ ...recordOf({ level: 'country', id: countryId }), plannedDate: null, position: null });
   };
 
   /** The Countries holding a Place marked Wish, by id: the Plans. */
@@ -541,6 +563,45 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
       const had = recordOf(place).mark;
       if (had === null) mark(place, 'wish');
       return had;
+    },
+    /**
+     * Clears a Country, an Island or a Region: its Mark, Note, Todos and Photos go, their files
+     * too, and it is Unexplored again. The Places inside it are untouched. Not undoable.
+     */
+    clear(place: PlaceRef) {
+      if (place.level === 'city') throw new Error('A City is Deleted, not Cleared');
+      const countryId = atlas.countryOf(place);
+      let removed: string[] = [];
+      transaction(db, () => {
+        removed = deleteContent(place);
+        // A Country's own position is its place among the Plans, seen to below; a Region's or an
+        // Island's is in an Itinerary, which it leaves with its Mark.
+        const record = recordOf(place);
+        const position = place.level === 'country' ? record.position : null;
+        save({ ...record, mark: null, visitDate: null, note: '', coverPhotoId: null, position });
+        dropPlanIfGone(countryId);
+      });
+      // What it took cannot come back, nor be given back by an undo of an earlier change of Mark.
+      undoable = null;
+      files.remove(removed);
+    },
+    /**
+     * Deletes a City of the Journal, a Custom City or one of the list, with its Note, Todos and
+     * Photos and their files. Its Region and Country keep their own. Not undoable.
+     */
+    deleteCity(id: string) {
+      const city = cities.get(id);
+      if (!city) throw new Error(`No City ${id} in the Journal`);
+      let removed: string[] = [];
+      transaction(db, () => {
+        removed = deleteContent(city);
+        db.run('DELETE FROM places WHERE level = ? AND id = ?', ['city', id]);
+        places.delete(keyOf(city));
+        leave(city);
+        dropPlanIfGone(city.countryId);
+      });
+      undoable = null;
+      files.remove(removed);
     },
     /** Takes back the last change of Mark. Returns its Place, or null when there is none. */
     undo(): PlaceRef | null {

@@ -42,6 +42,10 @@ type JournalState = {
   deletePhoto(id: number): void;
   setCaption(id: number, caption: string): void;
   setCoverPhoto(place: PlaceRef, photoId: number): void;
+  /** « Effacer » a Country, an Island or a Region, for good (see Journal.clear). */
+  clear(place: PlaceRef): void;
+  /** « Supprimer » a City of the Journal, for good (see Journal.deleteCity). */
+  deleteCity(id: string): void;
 };
 
 const JournalContext = createContext<JournalState | null>(null);
@@ -100,6 +104,8 @@ export function JournalProvider({ children }: { children: ReactNode }) {
       deletePhoto: writing(journal.deletePhoto),
       setCaption: writing(journal.setCaption),
       setCoverPhoto: writing(journal.setCoverPhoto),
+      clear: writing(journal.clear),
+      deleteCity: writing(journal.deleteCity),
     };
   }, [journal, version]);
 
