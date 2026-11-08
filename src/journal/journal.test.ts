@@ -1037,12 +1037,35 @@ test('a Country cleared but still a Plan through its Regions keeps its Planned d
   assert.equal(j.place(japan), null);
 });
 
-test('a Clear cannot be undone, nor the change of Mark before it', () => {
+test('a Clear cannot be undone, nor the change of Mark it took', () => {
   const j = journal();
   j.mark(france, 'visited');
   j.clear(france);
   assert.equal(j.undo(), null);
   assert.equal(j.status(france), 'unexplored');
+});
+
+test('a Clear leaves the undo of another Place’s change of Mark', () => {
+  const j = journal();
+  j.mark(japan, 'visited');
+  j.writeNote(france, 'Sarlat');
+  j.clear(france);
+  assert.deepEqual(j.undo(), japan);
+  assert.equal(j.status(japan), 'unexplored');
+});
+
+test('a Region or an Island cleared leaves the Itinerary, and a Country’s Cover photo chosen inside it stays chosen', async () => {
+  const j = openJournal({ db: memoryDatabase(), atlas, files: memoryPhotoFiles() });
+  j.mark(okinawa, 'wish');
+  j.mark(kansai, 'wish');
+  await j.addPhotos(japan, ['fuji.heic']);
+  await j.addPhotos(kansai, ['temple.heic']);
+  const [castle] = await j.addPhotos(kyoto, ['castle.heic']);
+  j.setCoverPhoto(japan, castle.id);
+  j.clear(okinawa);
+  assert.deepEqual(itinerary(j, '392'), ['region:kansai']);
+  j.clear(japan);
+  assert.equal(j.coverPhoto(japan)?.id, castle.id);
 });
 
 test('a Deleted City is gone from the Journal with its Note, Todos and Photos and their files, after reopening the app too', async () => {

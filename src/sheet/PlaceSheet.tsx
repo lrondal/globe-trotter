@@ -54,7 +54,7 @@ import {
 
 import { formatCoordinates } from "./coordinates";
 import { sheetChange, type SheetIdentity } from "./crossfade";
-import { eraseDialog, type Erasable } from "./erase";
+import { ERASE_LABEL, eraseDialog, type Erasable } from "./erase";
 import { detentHeight, restingDetent, sheetTiming } from "./detents";
 import { formatVisitDates } from "./visitDate";
 
@@ -96,13 +96,6 @@ export type SheetPlace = SheetIdentity & {
   erasable: Erasable | null;
 };
 
-/** The button offering a Clear, or a Delete for a City. */
-const ERASE_LABEL: Record<Erasable["level"], string> = {
-  country: "Effacer le pays",
-  island: "Effacer l’île",
-  region: "Effacer la région",
-  city: "Supprimer la ville",
-};
 
 type Props = {
   /** Points of sheet showing above the bottom of the screen; 0 when closed. */
