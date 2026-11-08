@@ -43,7 +43,7 @@ type Busy = 'export' | 'import' | null;
 
 export default function ProfileScreen() {
   const { journal, writeExport, applyExport, resetAll } = useJournal();
-  const { photosOnGlobe, autoRotate, set, replace } = usePreferences();
+  const { preferences, photosOnGlobe, autoRotate, set, replace } = usePreferences();
   const [busy, setBusy] = useState<Busy>(null);
   /** An Export picked and checked, waiting for the user to confirm its Import. */
   const [picked, setPicked] = useState<PickedExport | null>(null);
@@ -55,8 +55,10 @@ export default function ProfileScreen() {
   async function exportTrips() {
     setBusy('export');
     try {
-      await shareExport((sink) => writeExport(sink, { photosOnGlobe, autoRotate }));
+      await shareExport((sink) => writeExport(sink, preferences));
     } catch {
+      // Out of the reset's dialog, if asked from there, for the message to be seen; nothing deleted.
+      setResetting(false);
       notify('L’Export n’a pas pu être créé. Réessayez.');
     } finally {
       setBusy(null);
@@ -163,8 +165,9 @@ export default function ProfileScreen() {
         open={resetting}
         title="Réinitialiser toutes les données ?"
         body={
-          'Vos lieux, notes, à faire et photos seront supprimés de ce téléphone. Cette suppression est ' +
-          'définitive et irréversible. Faites d’abord un Export pour pouvoir les retrouver.'
+          'Vos lieux, notes, à faire et photos seront supprimés de ce téléphone, et les réglages du globe ' +
+          'remis à zéro. Cette suppression est définitive et irréversible. Faites d’abord un Export pour ' +
+          'pouvoir les retrouver.'
         }
         confirm="Tout supprimer"
         destructive

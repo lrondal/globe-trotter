@@ -1,6 +1,6 @@
 // The bytes of a file an Export is written to or read from, a piece at a time: an Export holds
-// every Photo, more than the phone should hold in memory at once. On the phone, a file of
-// expo-file-system (deviceBytes.ts); in the Node tests, an array in memory (memoryBytes.ts).
+// every Photo, more than the phone should hold in memory at once. On the phone, a FileHandle of
+// expo-file-system (deviceExport.ts); in the Node tests, an array in memory (memoryBytes.ts).
 
 /** Where a file is written, from its start, in order. */
 export type ByteSink = {

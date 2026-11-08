@@ -12,6 +12,8 @@ const phoneStore: KeyValueStore = {
 };
 
 type PreferencesState = Preferences & {
+  /** All of them together, as an Export carries them. */
+  preferences: Preferences;
   set(key: keyof Preferences, value: boolean): void;
   /** Sets them all: those of an Import, or the defaults after a reset. */
   replace(preferences: Preferences): void;
@@ -24,6 +26,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const state = useMemo<PreferencesState>(
     () => ({
       ...preferences,
+      preferences,
       set(key, value) {
         writePreference(phoneStore, key, value);
         setPreferences((current) => ({ ...current, [key]: value }));

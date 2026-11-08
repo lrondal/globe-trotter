@@ -1,6 +1,10 @@
 // A file's bytes held in memory, for the Node tests.
 import type { ByteSink, ByteSource } from './bytes.ts';
 
+/**
+ * A file in memory, holding `initial` to begin with: its sink appends to it, and source() reads
+ * it as written so far, as an Export just made, or one picked to import.
+ */
 export function memoryBytes(initial: Uint8Array = new Uint8Array()) {
   const chunks: Uint8Array[] = [initial];
   /** Every byte written so far, as one array. */

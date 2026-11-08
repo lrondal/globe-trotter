@@ -236,6 +236,15 @@ test('a Photo file that fails to be written leaves the Journal and the files as 
   assert.deepEqual(await filesOf(p.files), before.files);
 });
 
+test('a Photo file the phone holds already is kept, never written over: an Export re-imported writes none', async () => {
+  const p = await travelled();
+  const before = await filesOf(p.files);
+  const contents = await readExport((await exported(p)).source());
+  const refusing = { ...p.files, write: async () => { throw new Error('No write expected'); } };
+  await applyExport(contents, { journal: p.journal, files: refusing });
+  assert.deepEqual(await filesOf(p.files), before);
+});
+
 test('resetting leaves no Place, Todo nor Photo, nor any Photo file: the app as first installed', async () => {
   const p = await travelled();
   resetAll({ journal: p.journal, files: p.files });

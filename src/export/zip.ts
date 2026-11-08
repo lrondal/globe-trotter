@@ -141,7 +141,6 @@ export async function readZip(source: ByteSource) {
   return {
     /** The names of its entries, in the zip's order. */
     names: (): string[] => [...entries.keys()],
-    has: (name: string) => entries.has(name),
     /** The bytes of the entry `name`, checked against its CRC-32. */
     async read(name: string): Promise<Uint8Array> {
       const entry = entries.get(name);

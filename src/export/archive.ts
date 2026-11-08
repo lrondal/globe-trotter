@@ -97,9 +97,10 @@ export async function readExport(source: ByteSource): Promise<ExportContents> {
 
 /**
  * Replaces everything the app holds with an Export read by readExport: its Photos' files are
- * written, then the Journal replaced, then the files no longer of any Photo removed. Should a
- * file fail to be written, the Journal is left as it was. The Preferences are the caller's to
- * set, from `contents.preferences`.
+ * written, then the Journal replaced, then the files no longer of any Photo removed. A file the
+ * app holds already is kept, never written over: a name is made of the time and a random tail,
+ * so it is that same Photo's, re-imported. Should a file fail to be written, the Journal and the
+ * files are left as they were. The Preferences are the caller's to set, from `contents.preferences`.
  */
 export async function applyExport(contents: ExportContents, { journal, files }: Deps) {
   const before = new Set(files.list());
@@ -107,12 +108,13 @@ export async function applyExport(contents: ExportContents, { journal, files }: 
   const written: string[] = [];
   try {
     for (const name of names) {
+      if (before.has(name)) continue;
       await files.write(name, await contents.zip.read(PHOTOS_FOLDER + name));
       written.push(name);
     }
     journal.restore(contents.journal);
   } catch (error) {
-    files.remove(written.filter((name) => !before.has(name)));
+    files.remove(written);
     throw error;
   }
   const kept = new Set(names);
