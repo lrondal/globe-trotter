@@ -2,7 +2,7 @@
 // its readers after every change.
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 
-import { containerOf, placeIdsAt, places } from '@/atlas';
+import { containerOf, countryOf, placeIdsAt, places } from '@/atlas';
 
 import { deviceDatabase } from './deviceDatabase';
 import { devicePhotoFiles } from './devicePhotoFiles';
@@ -41,7 +41,7 @@ const JournalContext = createContext<JournalState | null>(null);
 export function JournalProvider({ children }: { children: ReactNode }) {
   const [journal] = useState(() => openJournal({
       db: deviceDatabase(),
-      atlas: { places, containerOf, locate: placeIdsAt },
+      atlas: { places, containerOf, locate: placeIdsAt, countryOf },
       files: devicePhotoFiles(),
     }));
   const [version, setVersion] = useState(0);

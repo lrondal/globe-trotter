@@ -29,6 +29,7 @@ import type { CityPlace } from '@/globe/thumbnails';
 import { useGlobeThumbnails, type RegionAnchors } from '@/globe/useGlobeThumbnails';
 import type { City, Journal, Mark, PlaceRef, Status } from '@/journal/journal';
 import { useJournal } from '@/journal/JournalProvider';
+import { placeName } from '@/journal/placeName';
 import { recenterAction } from '@/location/launch';
 import { useLocation } from '@/location/LocationProvider';
 import { SearchBar, type Picked } from '@/search/SearchBar';
@@ -77,11 +78,6 @@ const regionLayersOf = (journal: Journal, filters: Filters, regions: Regions): R
   layers: regions.list.map(({ id }) => layerOf(journal.status(regionRef(id)), filters)),
 });
 
-/** The name of a Place, for the provenance of a Status. */
-const nameOf = (journal: Journal, place: PlaceRef) => {
-  if (place.level === 'city') return journal.city(place.id)?.name ?? '';
-  return place.level === 'region' ? (atlas.region(place.id)?.name ?? '') : (countries.find((c) => c.id === place.id)?.name ?? '');
-};
 
 /** The heading of the Photos of the Places inside a Place, in its sheet. */
 const INSIDE_LABEL: Record<PlaceRef['level'], string> = {
@@ -197,7 +193,7 @@ export default function GlobeScreen() {
       lon,
       lat,
       status: journal.status(sheetRef),
-      via: journal.via(sheetRef).map((p) => nameOf(journal, p)),
+      via: journal.via(sheetRef).map((p) => placeName(journal, p)),
       visitDates: journal.visitDates(sheetRef),
       ownVisitDate: journal.place(sheetRef)?.visitDate ?? null,
       canRemove: journal.canRemoveMark(sheetRef),

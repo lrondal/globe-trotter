@@ -7,7 +7,6 @@ import {
   CalendarDays,
   Check,
   ChevronLeft,
-  ChevronRight,
   Move,
   NotebookPen,
   PenLine,
@@ -32,6 +31,7 @@ import { scheduleOnRN } from "react-native-worklets";
 
 import { Button } from "@/components/Button";
 import { MonthDialog } from "@/components/MonthDialog";
+import { PlaceRow } from "@/components/PlaceRow";
 import { STATUS_LABEL, StatusBadge } from "@/components/StatusBadge";
 import { photoUri } from "@/journal/devicePhotoFiles";
 import type { Mark, Photo, Status } from "@/journal/journal";
@@ -121,13 +121,6 @@ const VIA_NAMES = 3;
 const fadeEasing = Easing.bezier(...easing.out);
 const fadeOut = { duration: duration.fast, easing: fadeEasing };
 const fadeIn = { duration: duration.base, easing: fadeEasing };
-
-/** The status dot of a row: an unexplored one is hollow. */
-const DOT: Record<Status, object> = {
-  visited: { backgroundColor: colors.stateVisited },
-  wish: { backgroundColor: colors.stateWish },
-  unexplored: { borderWidth: layout.borderWidth, borderColor: colors.ink3 },
-};
 
 /** « via Kansai, Kanto, … », or nothing for a Status from the Place's own Mark. */
 const formatVia = (names: string[]) =>
@@ -353,39 +346,15 @@ export function PlaceSheet({
               <View>
                 <Text style={styles.overline}>Villes</Text>
                 {shown.cities.map((city, i) => (
-                  <Pressable
+                  <PlaceRow
                     key={city.id}
-                    accessibilityRole="button"
+                    name={city.name}
+                    meta={STATUS_LABEL[city.status]}
+                    status={city.status}
+                    thumbnail={city.thumbnail}
+                    last={i === shown.cities.length - 1}
                     onPress={() => onOpenCity(city.id)}
-                    style={({ pressed }) => [
-                      styles.cityRow,
-                      i === shown.cities.length - 1 && styles.lastRow,
-                      pressed && { backgroundColor: colors.paper2 },
-                    ]}
-                  >
-                    <View style={styles.cityThumbnail}>
-                      {city.thumbnail && (
-                        <Image
-                          source={{ uri: photoUri(city.thumbnail) }}
-                          style={StyleSheet.absoluteFill}
-                        />
-                      )}
-                    </View>
-                    <View style={styles.cityText}>
-                      <Text style={styles.cityName} numberOfLines={1}>
-                        {city.name}
-                      </Text>
-                      <Text style={styles.cityMeta}>
-                        {STATUS_LABEL[city.status]}
-                      </Text>
-                    </View>
-                    <View style={[styles.dot, DOT[city.status]]} />
-                    <ChevronRight
-                      color={colors.ink4}
-                      size={18}
-                      strokeWidth={2}
-                    />
-                  </Pressable>
+                  />
                 ))}
               </View>
             )}
@@ -578,44 +547,6 @@ const styles = StyleSheet.create({
   },
   section: {
     gap: space[3],
-  },
-  // The design system's PlaceRow.
-  cityRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space[4],
-    minHeight: 56,
-    paddingVertical: space[3],
-    borderBottomWidth: layout.borderWidth,
-    borderBottomColor: colors.borderDefault,
-  },
-  lastRow: {
-    borderBottomWidth: 0,
-  },
-  // 44 pt square, 4 pt corners; the hatched placeholder's paper until the City has Photos.
-  cityThumbnail: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.sm,
-    overflow: "hidden",
-    backgroundColor: colors.paper2,
-  },
-  cityText: {
-    flex: 1,
-    gap: 2,
-  },
-  cityName: {
-    ...text.bodyStrong,
-    color: colors.textPrimary,
-  },
-  cityMeta: {
-    ...text.bodyS,
-    color: colors.textMuted,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
   },
   actions: {
     flexDirection: "row",

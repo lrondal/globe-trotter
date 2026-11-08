@@ -1,11 +1,11 @@
 // « Rechercher un lieu »: the search pill over the globe, and what it finds under it, grouped
 // Pays / Îles / Régions / Villes. The Atlas searches on the phone, offline, as the user types.
-import { Search, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Keyboard, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 
 import { atlas, countries, type CityMatch, type CountryRecord, type RegionRecord, type SearchResults } from '@/atlas';
+import { SearchInput } from '@/components/SearchInput';
 import { colors, layout, radius, shadow, space, text } from '@/theme/tokens';
 
 /** A Place picked among the results. */
@@ -66,25 +66,13 @@ export function SearchBar({ onPick }: Props) {
 
   return (
     <View style={styles.search} pointerEvents="box-none">
-      <View style={[styles.pill, focused && styles.pillFocused]}>
-        <Search color={colors.ink3} size={18} strokeWidth={2} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder="Rechercher un lieu"
-          placeholderTextColor={colors.textMuted}
-          returnKeyType="search"
-          autoCorrect={false}
-          style={styles.input}
-        />
-        {query !== '' && (
-          <Pressable accessibilityRole="button" accessibilityLabel="Effacer la recherche" hitSlop={8} onPress={() => setQuery('')}>
-            <X color={colors.ink3} size={18} strokeWidth={2} />
-          </Pressable>
-        )}
-      </View>
+      <SearchInput
+        value={query}
+        onChangeText={setQuery}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder="Rechercher un lieu"
+      />
       {open && (
         <View style={styles.results}>
           <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
@@ -120,29 +108,6 @@ export function SearchBar({ onPick }: Props) {
 const styles = StyleSheet.create({
   search: {
     gap: space[3],
-  },
-  // The design system's search input: a 44 pt pill with a leading search icon.
-  pill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[3],
-    height: layout.hitMin,
-    paddingHorizontal: 14,
-    backgroundColor: colors.surfaceRaised,
-    borderRadius: radius.pill,
-    borderWidth: layout.borderWidth,
-    borderColor: colors.borderStrong,
-    boxShadow: shadow[1],
-  },
-  // Focus shows an ink border, never a glow.
-  pillFocused: {
-    borderColor: colors.borderFocus,
-  },
-  input: {
-    ...text.body,
-    flex: 1,
-    color: colors.textPrimary,
-    paddingVertical: 0,
   },
   results: {
     maxHeight: 360,
