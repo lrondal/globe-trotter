@@ -264,6 +264,12 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
     if (city.islandId) return { level: 'island', id: city.islandId };
     return city.regionId ? { level: 'region', id: city.regionId } : { level: 'country', id: city.countryId };
   };
+  /**
+   * The Country a Place belongs to, by id: an Island's too, though its Status does not reach
+   * it. Undefined for a City not in the Journal.
+   */
+  const countryOf = (place: PlaceRef): string | undefined =>
+    place.level === 'city' ? cities.get(place.id)?.countryId : atlas.countryOf(place);
   /** Records a City in the Journal, or records it anew. */
   const keep = (city: City) => {
     const row: CityRow = {
@@ -627,11 +633,16 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
       const groups = new Map<string, PlaceRef[]>();
       for (const record of places.values()) {
         if (record.mark === null && !hasContent(record)) continue;
-        const countryId = record.level === 'city' ? cities.get(record.id)?.countryId : atlas.countryOf(record);
+        const countryId = countryOf(record);
         if (countryId === undefined) continue;
         groups.set(countryId, [...(groups.get(countryId) ?? []), { level: record.level, id: record.id }]);
       }
       return [...groups].map(([countryId, list]) => ({ countryId, places: list }));
+    },
+    countryOf,
+    /** The Wishlist: every Place whose own Mark is Wish, whatever its level; in no set order. */
+    wishlist(): PlaceRef[] {
+      return [...places.values()].filter((record) => record.mark === 'wish').map(({ level, id }) => ({ level, id }));
     },
     /** Every City in the Journal. */
     cities(): City[] {
