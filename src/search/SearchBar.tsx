@@ -1,6 +1,6 @@
 // « Rechercher un lieu »: the search pill over the globe, and what it finds under it, grouped
 // Pays / Îles / Régions / Villes. The Atlas searches on the phone, offline, as the user types.
-// On a Country's page, it searches that Country only, its Custom Cities included.
+// On a Country's page, it searches that Country only. Custom Cities are found when given.
 import { useEffect, useState } from 'react';
 import { Keyboard, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
@@ -19,8 +19,10 @@ export type Picked =
 
 type Props = {
   onPick: (picked: Picked) => void;
-  /** Searches only this Country, and its Custom Cities as well as the list's. */
-  within?: { countryId: string; customCities: readonly City[] };
+  /** Searches only this Country. */
+  countryId?: string;
+  /** Custom Cities to find as well as the list's. */
+  customCities?: readonly City[];
   placeholder?: string;
   autoFocus?: boolean;
 };
@@ -52,7 +54,7 @@ function customMatches(cities: readonly City[], query: string): CityMatch[] {
     .map(({ id, name, lon, lat, countryId, islandId, regionId }) => ({ id, name, aliases: [], lon, lat, countryId, islandId, regionId }));
 }
 
-export function SearchBar({ onPick, within, placeholder = 'Rechercher un lieu', autoFocus }: Props) {
+export function SearchBar({ onPick, countryId, customCities, placeholder = 'Rechercher un lieu', autoFocus }: Props) {
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
   const [results, setResults] = useState<SearchResults | null>(null);
@@ -61,8 +63,6 @@ export function SearchBar({ onPick, within, placeholder = 'Rechercher un lieu', 
   useEffect(() => {
     void atlas.loadCities();
   }, []);
-  const countryId = within?.countryId;
-  const customCities = within?.customCities;
   useEffect(() => {
     let current = true;
     atlas.search(query, countryId ? { countryId } : undefined).then((found) => {

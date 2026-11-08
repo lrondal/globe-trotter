@@ -15,6 +15,8 @@ type JournalState = {
   version: number;
   /** A City given whole enters the Journal with its Mark (see Journal.mark). */
   mark(place: PlaceRef | City, mark: Mark | null): void;
+  /** Marks a Place Wish unless it has a Mark; returns the Mark it had (see Journal.wish). */
+  wish(place: PlaceRef | City): Mark | null;
   /** Takes back the last change of Mark (see Journal.undo). */
   undo(): void;
   /** Of a Place marked Visited, YYYY-MM (see Journal.setVisitDate). */
@@ -68,6 +70,11 @@ export function JournalProvider({ children }: { children: ReactNode }) {
       journal,
       version,
       mark: writing(journal.mark),
+      wish(place) {
+        const had = journal.wish(place);
+        if (had === null) changed();
+        return had;
+      },
       undo() {
         if (journal.undo()) changed();
       },

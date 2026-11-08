@@ -2,7 +2,7 @@
 // named, in order, and narrowed to a search. And the Wishlist view (« Envies »), likewise
 // for Journal.wishlist. And a Country's page, for Journal.countryPage.
 import { fold } from '../atlas/cities.ts';
-import type { CountryGroup, CountryPage, PageGroup, PlaceRef } from './journal.ts';
+import type { CountryGroup, CountryPage, Mark, PageGroup, PlaceRef } from './journal.ts';
 
 /** What the Journal view reads of a Place besides the Journal's list. */
 type Lookup = {
@@ -42,6 +42,15 @@ export function wishlistView(
   return { count: `${rows.length} destination${plural} épinglée${plural}`, rows };
 }
 
+/**
+ * What picking a Place to wish says (see Journal.wish), given the Mark it had: that it is now
+ * « À visiter », which can be undone; or that it was wished, or visited, already.
+ */
+export function wishNotice(name: string, had: Mark | null): { message: string; undoable: boolean } {
+  const said = { wish: 'Déjà dans vos envies', visited: 'Déjà visité' } as const;
+  return { message: `${name} · ${had ? said[had] : 'À visiter'}`, undoable: had === null };
+}
+
 /** A Region or an Island of a Country's page, named, and its Cities there by name. */
 export type ViewBranch = { row: ViewRow; cities: ViewRow[] };
 
@@ -59,6 +68,39 @@ export function countryView(
       .map(({ place, cities }) => ({ row: { place, name: nameOf(place) }, cities: rows(cities) }))
       .sort((a, b) => byName(a.row, b.row));
   return { regions: branches(page.regions), islands: branches(page.islands), otherCities: rows(page.otherCities) };
+}
+
+/** A row of a Country's page: a Region's or an Island's, or a City's, set under its Region or Island. */
+export type PageRow = ViewRow & { indented: boolean };
+export type PageSection = { title: string; data: PageRow[] };
+
+/**
+ * A Country's page as it is shown: « Régions », « Îles » and « Autres villes », those with
+ * something in them; each Region or Island followed by its Cities, set under it.
+ */
+export function countrySections(view: ReturnType<typeof countryView>): PageSection[] {
+  const rowsOf = (branches: readonly ViewBranch[]): PageRow[] =>
+    branches.flatMap(({ row, cities }) => [
+      { ...row, indented: false },
+      ...cities.map((city) => ({ ...city, indented: true })),
+    ]);
+  return [
+    { title: 'Régions', data: rowsOf(view.regions) },
+    { title: 'Îles', data: rowsOf(view.islands) },
+    { title: 'Autres villes', data: view.otherCities.map((row) => ({ ...row, indented: false })) },
+  ].filter((section) => section.data.length > 0);
+}
+
+/** Where a Place is on its Country's page: its section, and its row there; null when not listed. */
+export function rowLocation(
+  sections: readonly PageSection[],
+  place: PlaceRef,
+): { sectionIndex: number; itemIndex: number } | null {
+  for (const [sectionIndex, { data }] of sections.entries()) {
+    const itemIndex = data.findIndex((row) => row.place.level === place.level && row.place.id === place.id);
+    if (itemIndex >= 0) return { sectionIndex, itemIndex };
+  }
+  return null;
 }
 
 /**

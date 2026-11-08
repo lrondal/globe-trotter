@@ -92,8 +92,8 @@ The list of every Place that has a Mark or any content, grouped by Country.
 _Avoid_: Notebook, log
 
 **Wishlist** (Envies):
-The list of every Place whose Mark is Wish.
+The list of every Place whose Mark is Wish. A Place added there from a search of every Place is marked Wish, unless it has a Mark already: a Visited Place stays Visited. A Place of the Wishlist opens its Country page, there.
 
 **Country page** (page Pays):
-A Country's own page, opened from the Journal: its Regions and Islands with a Mark or content, or holding a City with one, each with those Cities, and its other such Cities under « Autres villes ». A Place added there from a search of that Country is marked Wish.
+A Country's own page, opened from the Journal or the Wishlist: its Regions and Islands with a Mark or content, or holding a City with one, each with those Cities, and its other such Cities under « Autres villes ». A Place added there from a search of that Country is marked Wish, unless it has a Mark already.
 _Avoid_: Country detail, country view

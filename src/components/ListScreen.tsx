@@ -4,13 +4,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, fonts, layout, space } from '@/theme/tokens';
 
+type Props = {
+  title: string;
+  /** An action at the end of the title's line: « + », say. */
+  action?: ReactNode;
+  children?: ReactNode;
+};
+
 /** Frame for the Journal, Wishlist and Profile tabs: a sans-serif screen title above the content. */
-export function ListScreen({ title, children }: { title: string; children?: ReactNode }) {
+export function ListScreen({ title, action, children }: Props) {
   return (
     <SafeAreaView edges={['top']} style={styles.screen}>
-      <Text accessibilityRole="header" style={styles.title}>
-        {title}
-      </Text>
+      <View style={styles.titleLine}>
+        <Text accessibilityRole="header" style={styles.title}>
+          {title}
+        </Text>
+        {action}
+      </View>
       <View style={styles.content}>{children}</View>
     </SafeAreaView>
   );
@@ -21,6 +31,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.surfacePage,
     paddingHorizontal: layout.screenGutter,
+  },
+  titleLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   title: {
     fontFamily: fonts.sansSemibold,

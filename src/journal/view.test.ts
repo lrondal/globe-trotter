@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { PlaceRef } from './journal.ts';
-import { countryView, journalView, wishlistView } from './view.ts';
+import { countrySections, countryView, journalView, rowLocation, wishlistView, wishNotice } from './view.ts';
 
 const NAMES: Record<string, string> = {
   'country:250': 'France',
@@ -112,4 +112,34 @@ test('a Country’s page view lists its Regions, its Islands and their Cities, a
   assert.deepEqual(lines(view.regions), ['Hokkaidō', 'Kansai, Kobe, Kyōto, Ōsaka']);
   assert.deepEqual(lines(view.islands), ['Okinawa, Naha', 'Sado']);
   assert.deepEqual(view.otherCities.map((row) => row.name), ['Aomori', 'Sapporo']);
+});
+
+const okinawa = { row: { place: ref('island:i-okinawa'), name: 'Okinawa' }, cities: [{ place: ref('city:naha'), name: 'Naha' }] };
+const kansai = { row: { place: ref('region:kansai'), name: 'Kansai' }, cities: [{ place: ref('city:kyoto'), name: 'Kyōto' }] };
+
+test('a Country’s page shows « Régions », « Îles » and « Autres villes », each Region or Island followed by its Cities, set under it', () => {
+  const sections = countrySections({ regions: [kansai], islands: [okinawa], otherCities: [{ place: ref('city:sapporo'), name: 'Sapporo' }] });
+  assert.deepEqual(
+    sections.map(({ title, data }) => `${title}: ${data.map((row) => (row.indented ? `  ${row.name}` : row.name)).join(', ')}`),
+    ['Régions: Kansai,   Kyōto', 'Îles: Okinawa,   Naha', 'Autres villes: Sapporo'],
+  );
+});
+
+test('a Country’s page leaves out a section with nothing in it', () => {
+  const sections = countrySections({ regions: [], islands: [okinawa], otherCities: [] });
+  assert.deepEqual(sections.map((section) => section.title), ['Îles']);
+});
+
+test('a Place is found on its Country’s page by its section and its row there, and a Place not listed is not', () => {
+  const sections = countrySections({ regions: [kansai], islands: [okinawa], otherCities: [] });
+  assert.deepEqual(rowLocation(sections, ref('city:naha')), { sectionIndex: 1, itemIndex: 1 });
+  assert.deepEqual(rowLocation(sections, ref('region:kansai')), { sectionIndex: 0, itemIndex: 0 });
+  assert.equal(rowLocation(sections, ref('city:kobe')), null);
+  assert.equal(rowLocation(sections, ref('country:392')), null);
+});
+
+test('picking a Place to wish says it is now À visiter, with undo, or that it was wished or visited already', () => {
+  assert.deepEqual(wishNotice('Kyōto', null), { message: 'Kyōto · À visiter', undoable: true });
+  assert.deepEqual(wishNotice('Kyōto', 'wish'), { message: 'Kyōto · Déjà dans vos envies', undoable: false });
+  assert.deepEqual(wishNotice('Kyōto', 'visited'), { message: 'Kyōto · Déjà visité', undoable: false });
 });
