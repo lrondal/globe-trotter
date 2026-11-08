@@ -17,7 +17,7 @@ A part of a Country set apart from its mainland, almost always an island (French
 _Avoid_: Detached region, territory, part
 
 **Region** (Région):
-A first-level administrative subdivision of a Country (ADM1), e.g. Kansai, Toscane.
+The administrative subdivision of a Country a traveller names, usually its first level (ADM1), e.g. Hokkaido, Toscana. Where the first level only groups them into statistical macro-regions, the level below is taken: Italy's 20 regioni rather than its 5 NUTS1 groups.
 _Avoid_: Province, state, area
 
 **City** (Ville):

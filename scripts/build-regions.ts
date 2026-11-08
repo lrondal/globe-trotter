@@ -12,7 +12,7 @@ const cache = path('../node_modules/.cache/geoboundaries');
 await download(cache);
 
 const atlas = JSON.parse(readFileSync(path('../assets/data/countries.json'), 'utf8'));
-const built = buildRegions(atlas, (iso3) => featuresOf(cache, iso3));
+const built = buildRegions(atlas, (source) => featuresOf(cache, source));
 checkRegions(atlas, built);
 
 writeFileSync(path('../assets/data/regions.json'), JSON.stringify(built.index));
