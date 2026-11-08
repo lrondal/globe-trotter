@@ -7,9 +7,11 @@ import {
   CalendarDays,
   Check,
   ChevronLeft,
+  Eraser,
   Move,
   NotebookPen,
   PenLine,
+  Trash,
   X,
 } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -30,6 +32,7 @@ import Animated, {
 import { scheduleOnRN } from "react-native-worklets";
 
 import { Button } from "@/components/Button";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { MonthDialog } from "@/components/MonthDialog";
 import { PlaceRow } from "@/components/PlaceRow";
 import { STATUS_LABEL, StatusBadge } from "@/components/StatusBadge";
@@ -51,6 +54,7 @@ import {
 
 import { formatCoordinates } from "./coordinates";
 import { sheetChange, type SheetIdentity } from "./crossfade";
+import { ERASE_LABEL, eraseDialog, type Erasable } from "./erase";
 import { detentHeight, restingDetent, sheetTiming } from "./detents";
 import { formatVisitDates } from "./visitDate";
 
@@ -85,7 +89,13 @@ export type SheetPlace = SheetIdentity & {
   insideLabel: string;
   /** A Custom City, which offers « Renommer » and « Déplacer ». */
   custom?: boolean;
+  /**
+   * What « Effacer » (a Country, an Island or a Region) or « Supprimer » (a City) would take;
+   * null when neither is offered: a Place holding nothing of its own, a City not in the Journal.
+   */
+  erasable: Erasable | null;
 };
+
 
 type Props = {
   /** Points of sheet showing above the bottom of the screen; 0 when closed. */
@@ -110,6 +120,8 @@ type Props = {
   onRename: () => void;
   /** « Déplacer », on a Custom City. */
   onMove: () => void;
+  /** The Clear, or the Delete of a City, confirmed. */
+  onErase: () => void;
 };
 
 /** Lines of the Note the sheet shows before cutting it off. */
@@ -141,6 +153,7 @@ export function PlaceSheet({
   onOpenPhoto,
   onRename,
   onMove,
+  onErase,
 }: Props) {
   // The last Place stays on the sheet while it slides away, or while it fades out.
   const [shown, setShown] = useState(place);
@@ -178,6 +191,7 @@ export function PlaceSheet({
   }, [fading, shown, opacity, reveal]);
   const fade = useAnimatedStyle(() => ({ opacity: opacity.value }));
   const [picking, setPicking] = useState(false);
+  const [erasing, setErasing] = useState(false);
 
   const full = detentHeight("full", screenHeight);
   const drag = Gesture.Pan()
@@ -358,6 +372,16 @@ export function PlaceSheet({
                 ))}
               </View>
             )}
+            {shown.erasable && (
+              <Button
+                variant="ghost"
+                icon={shown.erasable.level === "city" ? Trash : Eraser}
+                fullWidth
+                onPress={() => setErasing(true)}
+              >
+                {ERASE_LABEL[shown.erasable.level]}
+              </Button>
+            )}
           </ScrollView>
         </Animated.View>
       )}
@@ -371,6 +395,17 @@ export function PlaceSheet({
             onVisitDate(visitDate);
           }}
           onCancel={() => setPicking(false)}
+        />
+      )}
+      {shown?.erasable && (
+        <ConfirmDialog
+          open={erasing}
+          {...eraseDialog(shown.erasable)}
+          onConfirm={() => {
+            setErasing(false);
+            onErase();
+          }}
+          onCancel={() => setErasing(false)}
         />
       )}
     </Animated.View>

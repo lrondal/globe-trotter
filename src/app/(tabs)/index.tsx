@@ -34,6 +34,7 @@ import { recenterAction } from '@/location/launch';
 import { useLocation } from '@/location/LocationProvider';
 import { SearchBar, type Picked } from '@/search/SearchBar';
 import { detentHeight } from '@/sheet/detents';
+import { ERASED, erasableOf } from '@/sheet/erase';
 import { openPhoto } from '@/photos/openPhoto';
 import { PlaceSheet, type SheetPlace } from '@/sheet/PlaceSheet';
 import { colors, layout, radius, shadow, text } from '@/theme/tokens';
@@ -110,7 +111,8 @@ const cityPoints = (journal: Journal): CityDot[] =>
 
 export default function GlobeScreen() {
   const { launch, position, permission, request, locate } = useLocation();
-  const { journal, version, mark, undo, setVisitDate, createCity, renameCity, moveCity } = useJournal();
+  const { journal, version, mark, undo, setVisitDate, createCity, renameCity, moveCity, clear, deleteCity } =
+    useJournal();
   const insets = useSafeAreaInsets();
   const globe = useRef<GlobeHandle>(null);
   const sheetHeight = useSharedValue(0);
@@ -210,6 +212,7 @@ export default function GlobeScreen() {
       photosInside: journal.photosInside(sheetRef),
       insideLabel: INSIDE_LABEL[sheetRef.level],
       custom: journal.city(sheetRef.id)?.custom === true,
+      erasable: erasableOf(journal, sheetRef),
     };
   }, [selected, sheetRef, city, journal, version]);
 
@@ -337,6 +340,21 @@ export default function GlobeScreen() {
     const created = await createCity(name, naming.point);
     if (created) selectCity(created);
   };
+  // Not undoable: the toast offers no « Annuler ». A Clear leaves its Place on the sheet; a City
+  // Deleted is gone, and the globe goes back to its Region, or else its Island or Country.
+  const onErase = () => {
+    if (!sheetRef || !place) return;
+    if (sheetRef.level === 'city') {
+      const gone = journal.city(sheetRef.id);
+      if (!gone) return;
+      deleteCity(gone.id);
+      const { country } = placeOfCity(gone);
+      if (country < 0) onClose();
+      else if (gone.regionId && !gone.islandId) selectRegion(gone.regionId);
+      else globe.current?.select(country);
+    } else clear(sheetRef);
+    notify({ message: `${place.name} · ${ERASED[sheetRef.level]}` });
+  };
   const onMove = () => {
     if (!city) return;
     setMoving(city);
@@ -405,6 +423,7 @@ export default function GlobeScreen() {
           onOpenPhoto={(photo) => sheetRef && openPhoto(sheetRef, photo)}
           onRename={() => city && setNaming({ city: journal.city(city.id) ?? city })}
           onMove={onMove}
+          onErase={onErase}
         />
       )}
       {/* Over the sheet, so that its results show over it too. */}

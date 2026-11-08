@@ -976,3 +976,142 @@ test('only a Plan has a Planned date to set', () => {
   j.mark(france, 'wish');
   assert.throws(() => j.setPlannedDate('250', '2027-13'));
 });
+
+test('clearing a Country takes its Mark, Note, Todos and Photos with their files, and survives reopening the app', async () => {
+  const files = memoryPhotoFiles();
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas, files });
+  j.mark(france, 'visited');
+  j.writeNote(france, 'Sarlat au printemps');
+  j.addTodo(france, 'Goûter le cassoulet');
+  await j.addPhotos(france, ['sarlat.heic']);
+  j.clear(france);
+  for (const opened of [j, openJournal({ db, atlas })]) {
+    assert.equal(opened.status(france), 'unexplored');
+    assert.equal(opened.place(france), null);
+    assert.deepEqual(opened.todos(france), []);
+    assert.deepEqual(opened.photos(france), []);
+  }
+  assert.deepEqual(files.held(), []);
+});
+
+test('clearing a Country or a Region leaves the Places inside it untouched, its Status now theirs', async () => {
+  const files = memoryPhotoFiles();
+  const j = openJournal({ db: memoryDatabase(), atlas, files });
+  j.mark(japan, 'wish');
+  j.mark(kansai, 'visited');
+  j.writeNote(kansai, 'Temples');
+  j.mark(kyoto, 'visited');
+  const [photo] = await j.addPhotos(kyoto, ['kinkakuji.heic']);
+  j.clear(japan);
+  assert.equal(j.place(japan)?.mark ?? null, null);
+  assert.equal(j.status(japan), 'visited');
+  assert.equal(j.place(kansai)?.note, 'Temples');
+  j.clear(kansai);
+  assert.equal(j.status(kansai), 'visited');
+  assert.deepEqual(j.via(japan), [kansai]);
+  assert.equal(j.status(kyoto), 'visited');
+  assert.deepEqual(j.photos(kyoto), [photo]);
+  assert.deepEqual(files.held().sort(), [photo.file, photo.thumbnail].sort());
+});
+
+test('a Cover photo chosen among those cleared goes back to the first Photo left', async () => {
+  const j = openJournal({ db: memoryDatabase(), atlas, files: memoryPhotoFiles() });
+  const [temple] = await j.addPhotos(kansai, ['temple.heic']);
+  const [castle] = await j.addPhotos(kyoto, ['castle.heic']);
+  j.setCoverPhoto(japan, temple.id);
+  j.clear(kansai);
+  assert.equal(j.coverPhoto(japan)?.id, castle.id);
+});
+
+test('a Country cleared but still a Plan through its Regions keeps its Planned date; one no longer a Plan loses it', () => {
+  const j = journal();
+  j.mark(japan, 'wish');
+  j.mark(kansai, 'wish');
+  j.setPlannedDate('392', '2027-04');
+  j.clear(japan);
+  assert.equal(plannedDate(j, '392'), '2027-04');
+  assert.deepEqual(itinerary(j, '392'), ['region:kansai']);
+  j.clear(kansai);
+  assert.deepEqual(j.plans(), []);
+  assert.equal(j.place(japan), null);
+});
+
+test('a Clear cannot be undone, nor the change of Mark it took', () => {
+  const j = journal();
+  j.mark(france, 'visited');
+  j.clear(france);
+  assert.equal(j.undo(), null);
+  assert.equal(j.status(france), 'unexplored');
+});
+
+test('a Clear leaves the undo of another Place’s change of Mark', () => {
+  const j = journal();
+  j.mark(japan, 'visited');
+  j.writeNote(france, 'Sarlat');
+  j.clear(france);
+  assert.deepEqual(j.undo(), japan);
+  assert.equal(j.status(japan), 'unexplored');
+});
+
+test('a Region or an Island cleared leaves the Itinerary, and a Country’s Cover photo chosen inside it stays chosen', async () => {
+  const j = openJournal({ db: memoryDatabase(), atlas, files: memoryPhotoFiles() });
+  j.mark(okinawa, 'wish');
+  j.mark(kansai, 'wish');
+  await j.addPhotos(japan, ['fuji.heic']);
+  await j.addPhotos(kansai, ['temple.heic']);
+  const [castle] = await j.addPhotos(kyoto, ['castle.heic']);
+  j.setCoverPhoto(japan, castle.id);
+  j.clear(okinawa);
+  assert.deepEqual(itinerary(j, '392'), ['region:kansai']);
+  j.clear(japan);
+  assert.equal(j.coverPhoto(japan)?.id, castle.id);
+});
+
+test('a Deleted City is gone from the Journal with its Note, Todos and Photos and their files, after reopening the app too', async () => {
+  const files = memoryPhotoFiles();
+  const db = memoryDatabase();
+  const j = openJournal({ db, atlas, files });
+  j.mark(kyoto, 'visited');
+  j.writeNote(kyoto, 'Le Pavillon d’or');
+  j.addTodo(kyoto, 'Fushimi Inari à l’aube');
+  await j.addPhotos(kyoto, ['kinkakuji.heic']);
+  j.deleteCity(kyoto.id);
+  for (const opened of [j, openJournal({ db, atlas })]) {
+    assert.equal(opened.city(kyoto.id), null);
+    assert.equal(opened.place(kyoto), null);
+    assert.deepEqual(opened.todos(kyoto), []);
+    assert.deepEqual(opened.photos(kyoto), []);
+    assert.deepEqual(opened.byCountry(), []);
+    assert.equal(opened.status(japan), 'unexplored');
+  }
+  assert.deepEqual(files.held(), []);
+  assert.equal(j.undo(), null);
+});
+
+test('Deleting a City leaves its Region and Country as they were, the Plan of its Country going with its last Wish', async () => {
+  const j = openJournal({ db: memoryDatabase(), atlas, files: memoryPhotoFiles() });
+  j.mark(kansai, 'visited');
+  const [temple] = await j.addPhotos(kansai, ['temple.heic']);
+  j.mark(kyoto, 'wish');
+  j.setPlannedDate('392', '2027-04');
+  j.deleteCity(kyoto.id);
+  assert.equal(j.status(japan), 'visited');
+  assert.deepEqual(j.photosInside(japan), [temple]);
+  assert.deepEqual(j.plans(), []);
+});
+
+test('a Custom City can be Deleted too', async () => {
+  const j = journal();
+  const city = await j.createCity('Chez Mamie', { lon: 2, lat: 46 });
+  j.deleteCity(city!.id);
+  assert.deepEqual(j.cities(), []);
+});
+
+test('only a City is Deleted, and only a Country, an Island or a Region Cleared', () => {
+  const j = journal();
+  j.mark(kyoto, 'visited');
+  assert.throws(() => j.clear(kyoto));
+  assert.throws(() => j.deleteCity('392'));
+  assert.equal(j.status(kyoto), 'visited');
+});
