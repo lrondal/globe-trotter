@@ -6,7 +6,7 @@ import { Keyboard, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 
 import { atlas, countries, type CityMatch, type CountryRecord, type RegionRecord, type SearchResults } from '@/atlas';
-import { fold } from '@/atlas/cities';
+import { fold, rankOf } from '@/atlas/cities';
 import { SearchInput } from '@/components/SearchInput';
 import type { City } from '@/journal/journal';
 import { colors, layout, radius, shadow, space, text } from '@/theme/tokens';
@@ -37,15 +37,18 @@ const whereIs = (city: CityMatch) =>
     .filter(Boolean)
     .join(' · ');
 
-/** The Custom Cities whose name, or a word of it, starts with `query`, as the search lists Cities. */
+/**
+ * The Custom Cities whose name, or a word of it, starts with `query`, as the search lists
+ * Cities: those found by their start first, then by name.
+ */
 function customMatches(cities: readonly City[], query: string): CityMatch[] {
   const q = fold(query);
   if (q === '') return [];
   return cities
-    .filter((city) => {
-      const name = fold(city.name);
-      return name.startsWith(q) || name.includes(` ${q}`);
-    })
+    .map((city) => ({ city, rank: rankOf(fold(city.name), q) }))
+    .filter(({ rank }) => rank !== null)
+    .sort((a, b) => a.rank! - b.rank! || a.city.name.localeCompare(b.city.name, 'fr'))
+    .map(({ city }) => city)
     .map(({ id, name, lon, lat, countryId, islandId, regionId }) => ({ id, name, aliases: [], lon, lat, countryId, islandId, regionId }));
 }
 

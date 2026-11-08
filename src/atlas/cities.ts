@@ -51,6 +51,12 @@ export function decodeCities(data: CitiesData, { countryOf, regionsOf }: Lookup)
   return cities;
 }
 
+/** How a folded name matches a folded query: 0 when it starts with it, 1 when a word of it does. */
+export function rankOf(name: string, query: string): 0 | 1 | null {
+  if (name.startsWith(query)) return 0;
+  return name.includes(` ${query}`) ? 1 : null;
+}
+
 /** A name as search compares it: lower case, without accents, hyphens or apostrophes. */
 export function fold(name: string): string {
   // Most names are plain ASCII: no accents to take off.

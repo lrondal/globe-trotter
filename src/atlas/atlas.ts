@@ -1,7 +1,7 @@
 // The Atlas: the reference Places, read-only. The Countries and Islands are decoded once; the
 // outlines of a Country's Regions, and the list of Cities, are loaded and decoded the first
 // time they are asked for, off the UI thread, and kept.
-import { decodeCities, fold, type CitiesData, type CityRecord } from './cities.ts';
+import { decodeCities, fold, rankOf, type CitiesData, type CityRecord } from './cities.ts';
 import { decodeCountries, type CountriesData, type CountryGeometry, type CountryRecord } from './countries.ts';
 import { decodeRegions, type RegionGeometry, type RegionIndex, type RegionRecord, type RegionsData } from './regions.ts';
 
@@ -36,12 +36,6 @@ const SEARCH_LIMIT = { countries: 5, islands: 5, regions: 5, cities: 20 };
 
 /** Letters of the start of a word the Cities are indexed by. */
 const START = 2;
-
-/** How a folded name matches a folded query: 0 when it starts with it, 1 when a word of it does. */
-function rankOf(name: string, query: string): 0 | 1 | null {
-  if (name.startsWith(query)) return 0;
-  return name.includes(` ${query}`) ? 1 : null;
-}
 
 export function openAtlas({ countries: data, regionIndex, loadRegions, loadCities = async () => '' }: Options) {
   const { countries, geometry } = decodeCountries(data);

@@ -117,7 +117,7 @@ export function CountryScreen({ countryId }: { countryId: string }) {
               <SearchBar
                 onPick={pick}
                 within={within}
-                placeholder={`Rechercher en ${name}`}
+                placeholder="Rechercher une région, une île, une ville"
                 autoFocus
               />
             </View>
@@ -138,7 +138,7 @@ export function CountryScreen({ countryId }: { countryId: string }) {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + space[7] }]}
         ListEmptyComponent={<Text style={styles.empty}>Aucune région, île ni ville dans le carnet.</Text>}
-        renderSectionHeader={({ section }) => <Text style={styles.sectionTitle}>{section.title}</Text>}
+        renderSectionHeader={({ section }) => <Text style={[styles.overline, styles.sectionTitle]}>{section.title}</Text>}
         renderItem={({ item, index, section }) => (
           <View style={item.indented && styles.indented}>
             <PlaceRow
@@ -221,10 +221,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: layout.screenGutter,
   },
   sectionTitle: {
-    ...text.overline,
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 11 * 0.08,
     marginTop: space[5],
   },
   // A City under its Region or Island.

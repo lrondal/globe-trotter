@@ -93,3 +93,7 @@ _Avoid_: Notebook, log
 
 **Wishlist** (Envies):
 The list of every Place whose Mark is Wish.
+
+**Country page** (page Pays):
+A Country's own page, opened from the Journal: its Regions and Islands with a Mark or content, or holding a City with one, each with those Cities, and its other such Cities under « Autres villes ». A Place added there from a search of that Country is marked Wish.
+_Avoid_: Country detail, country view
