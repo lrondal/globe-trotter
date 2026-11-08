@@ -10,8 +10,10 @@
 // it while it fades to its tint: the flight never waits for them. A tap on one of them flies
 // to it, and its outline darkens while the one left fades back; tapped again, or « ‹ Country »
 // in the sheet, the globe flies back to the Country, its Regions staying. The Journal's Cities are
-// ink dots, drawn over everything but the rim, and the Places' Photos are round thumbnails
-// over them (see thumbnails.ts), drawn as one picture and faded in and out on the UI thread.
+// ink dots, drawn over everything but the rim, from a zoom on or in the Place selected; the
+// Places' Photos are round thumbnails over them (see thumbnails.ts). Both are drawn as one
+// picture and faded in and out on the UI thread. Every layer is drawn from one scene, traced
+// with one reading of the camera, so what is set on the globe moves with it as if pinned.
 // A tap on a thumbnail or a City's dot is a tap on its Place. A long press tells the parent
 // the point of the globe under the finger, where a Custom City goes.
 import {
@@ -21,12 +23,13 @@ import {
   ClipOp,
   createPicture,
   Group,
-  notifyChange,
   Path,
   Picture,
+  // Not select(): the globe's select() selects a Country.
+  select as part,
   Skia,
   useFont,
-  usePathValue,
+  type SkPath,
 } from '@shopify/react-native-skia';
 import { LocateFixed, Minus, Plus } from 'lucide-react-native';
 import { memo, useEffect, useImperativeHandle, useMemo, useState, type Ref } from 'react';
@@ -87,7 +90,17 @@ import {
   type Detail,
   type Viewport,
 } from './projection';
-import { HIDDEN, keepApart, OWN, shownAs, thumbnailDiameter, TIER, type GlobeThumbnail } from './thumbnails';
+import {
+  cityDotShown,
+  HIDDEN,
+  keepApart,
+  OWN,
+  shownAs,
+  thumbnailDiameter,
+  TIER,
+  type CityPlace,
+  type GlobeThumbnail,
+} from './thumbnails';
 
 const zoomTiming = { duration: duration.slow, easing: Easing.bezier(...easing.out) };
 /** How the Regions and the tint of their Country fade in and out. */
@@ -126,6 +139,10 @@ const LAYERS = Object.values(LAYER);
 const SELECTED_PATH = LAYERS.length;
 const LEFT_PATH = LAYERS.length + 1;
 const REGION_PATHS = LAYERS.length + 2;
+/** The Countries' paths outlined, in the order they are drawn. */
+const LAND_STROKED = ['land', 'visited', 'wish', 'outline', 'visitedTint', 'wishTint'] as const;
+/** The Regions' paths outlined with hairlines. */
+const REGIONS_STROKED = ['regionLand', 'regionVisited', 'regionWish', 'regionOutline', 'selectedRegion', 'leftRegion'] as const;
 /** After a pinch, the finger left down drags the globe once it has moved this far, in points. */
 const DRAG_AFTER_PINCH = 10;
 /** A press this long, in milliseconds, without moving, is a long press: not a tap. */
@@ -137,8 +154,107 @@ const MEASURE_TOP = 56;
 export type ShownRegions = { country: number; geometry: CountryGeometry };
 /** The colour layer of each Region of the Country at index `country`, in their order. */
 export type RegionLayers = { country: number; layers: Layer[] };
-/** A Journal City's dot. */
-export type CityDot = Point & { id: string };
+/** A Journal City's dot: where it is, and in which Country or Island and Region, by index. */
+export type CityDot = Point & CityPlace & { id: string };
+
+/**
+ * Everything the canvas draws in a frame, traced with that frame's camera: the globe's disc, the
+ * graticule, the Countries' paths by colour layer, the selected Country's Regions', the location
+ * dot. The Cities' dots and the thumbnails are drawn over it by the overlay, where it placed them.
+ */
+type Scene = {
+  cx: number;
+  cy: number;
+  r: number;
+  graticule: SkPath;
+  land: SkPath;
+  visited: SkPath;
+  wish: SkPath;
+  outline: SkPath;
+  visitedTint: SkPath;
+  wishTint: SkPath;
+  regionLand: SkPath;
+  regionVisited: SkPath;
+  regionWish: SkPath;
+  regionOutline: SkPath;
+  selectedRegion: SkPath;
+  leftRegion: SkPath;
+  locationX: number;
+  locationY: number;
+  locationOpacity: number;
+  /** The viewport's size, which the overlay's picture covers. */
+  width: number;
+  height: number;
+};
+
+/**
+ * Where the scene placed the Cities and the thumbnails in a frame, by their index in the lists
+ * it placed. The overlay draws them from it.
+ */
+function newPlacement() {
+  'worklet';
+  return {
+    cities: [] as CityDot[],
+    cityXs: [] as number[],
+    cityYs: [] as number[],
+    cityVisible: [] as boolean[],
+    cityShown: [] as boolean[],
+    thumbnails: [] as GlobeThumbnail[],
+    xs: [] as number[],
+    ys: [] as number[],
+    counts: [] as number[],
+    showings: [] as number[],
+    /** On the near side and shown as the selection says, before keepApart. */
+    shown: [] as boolean[],
+    kept: [] as boolean[],
+    diameter: 0,
+  };
+}
+
+/**
+ * Each opacity of `alpha` a `step` closer to its target, or null when all are there: then
+ * nothing is made anew.
+ */
+function fadeTowards(alpha: Record<string, number>, target: Record<string, number>, step: number) {
+  'worklet';
+  let fading = false;
+  for (const key in target) {
+    if ((alpha[key] ?? 0) !== target[key]) {
+      fading = true;
+      break;
+    }
+  }
+  if (!fading) return null;
+  const faded: Record<string, number> = {};
+  for (const key in target) {
+    const from = alpha[key] ?? 0;
+    const to = target[key];
+    faded[key] = to > from ? Math.min(to, from + step) : Math.max(to, from - step);
+  }
+  return faded;
+}
+
+/**
+ * The opacities `list` fades towards, by key: 1 for those `shown`, by index, 0 for the others;
+ * or null when `current` already says so, so that no new record is made every frame.
+ */
+function retarget<T>(current: Record<string, number>, list: T[], keyOf: (item: T) => string, shown: boolean[]) {
+  'worklet';
+  let changed = false;
+  for (let i = 0; i < list.length && !changed; i++) changed = current[keyOf(list[i])] !== (shown[i] ? 1 : 0);
+  if (!changed) return null;
+  const next: Record<string, number> = {};
+  for (let i = 0; i < list.length; i++) next[keyOf(list[i])] = shown[i] ? 1 : 0;
+  return next;
+}
+const cityKey = (city: CityDot) => {
+  'worklet';
+  return city.id;
+};
+const thumbnailKey = (t: GlobeThumbnail) => {
+  'worklet';
+  return t.key;
+};
 
 /** The fill of a Region's own path: its layer's colour, if its layer is filled. */
 function fillOf(layer: Layer | undefined) {
@@ -417,16 +533,18 @@ export const Globe = memo(function Globe({
     [],
   );
 
-  // The paths may read the camera through frame(): usePathValue notifies its own path,
-  // so it re-runs every frame whatever its callback reads. Derived values do not.
-  // The Countries are traced once per frame into one path per colour layer, built here like
-  // usePathValue builds its one path, and the camera and layers are read directly.
+  // Every layer of the canvas is drawn from one scene, traced in one mapper from one reading of
+  // the camera, and the canvas reads its keys through part(): Reanimated runs that mapper
+  // before the canvas's own, so the land and what is set on it never come from two frames.
+  // Paths written to a shared value by a mapper, and read by another, were not ordered so:
+  // the land could be drawn a frame behind the thumbnails, the dots and the location dot.
   const builders = useSharedValue(useMemo(() => LAYERS.map(() => Skia.PathBuilder.Make()), []));
-  const landPaths = useSharedValue(useMemo(() => LAYERS.map(() => Skia.Path.Make()), []));
   // The selected Country's Regions, likewise, in the same layers, and the paths of the
   // selected Region and of the one before it.
   const regionBuilders = useSharedValue(useMemo(() => Array.from({ length: REGION_PATHS }, () => Skia.PathBuilder.Make()), []));
-  const regionPaths = useSharedValue(useMemo(() => Array.from({ length: REGION_PATHS }, () => Skia.Path.Make()), []));
+  const graticuleBuilder = useSharedValue(useMemo(() => Skia.PathBuilder.Make(), []));
+  /** The Regions' paths while they are not drawn: made once. */
+  const emptyPath = useSharedValue(useMemo(() => Skia.Path.Make(), []));
   // The path each Region is traced into: its layer's, or one of its own while selected.
   const regionTraced = useDerivedValue(() => {
     const shownLayers = regionLayers.value;
@@ -435,28 +553,6 @@ export const Globe = memo(function Globe({
     if (leftRegion.value >= 0 && leftRegion.value < traced.length) traced[leftRegion.value] = LEFT_PATH;
     if (selectedRegion.value >= 0 && selectedRegion.value < traced.length) traced[selectedRegion.value] = SELECTED_PATH;
     return { country: shownLayers.country, traced };
-  });
-  useDerivedValue(() => {
-    if (viewport.value.width === 0) return;
-    const sinks = builders.value;
-    for (const sink of sinks) sink.reset();
-    const start = performance.now();
-    const camera = frameFor({ lon: lon.value, lat: lat.value, zoom: zoom.value }, viewport.value, lift.value);
-    let drawn = traceCountries(countryGeometry, camera, detailArea, sinks, layers.value);
-    landPaths.value = sinks.map((sink) => sink.build());
-    const shown = regions.value;
-    const shownLayers = regionTraced.value;
-    // Their layers may arrive a frame before or after them: never draw one with the other's.
-    if (fade.value > 0 && shown && shownLayers?.country === shown.country) {
-      const regionSinks = regionBuilders.value;
-      for (const sink of regionSinks) sink.reset();
-      drawn += traceCountries(shown.geometry, camera, detailArea, regionSinks, shownLayers.traced);
-      regionPaths.value = regionSinks.map((sink) => sink.build());
-      notifyChange(regionPaths);
-    }
-    points.value = drawn;
-    buildMs.value = performance.now() - start;
-    notifyChange(landPaths);
   });
   // A Region asked for before its Country's Regions were there: the globe turns towards it.
   useAnimatedReaction(
@@ -475,78 +571,30 @@ export const Globe = memo(function Globe({
       if (ready && !before) fade.value = withTiming(1, fadeTiming);
     },
   );
-  const land = useDerivedValue(() => landPaths.value[LAYER.land]);
-  const visited = useDerivedValue(() => landPaths.value[LAYER.visited]);
-  const wish = useDerivedValue(() => landPaths.value[LAYER.wish]);
-  const outlineOnly = useDerivedValue(() => landPaths.value[LAYER.outline]);
-  const visitedTint = useDerivedValue(() => landPaths.value[LAYER.visitedTint]);
-  const wishTint = useDerivedValue(() => landPaths.value[LAYER.wishTint]);
   const visitedTintColor = useDerivedValue(() =>
     interpolateColor(fade.value, [0, 1], [colors.stateVisited, colors.stateVisitedTint]),
   );
   const wishTintColor = useDerivedValue(() => interpolateColor(fade.value, [0, 1], [colors.stateWish, colors.stateWishTint]));
-  // Regions take no tint layer: only these four.
-  const regionLand = useDerivedValue(() => regionPaths.value[LAYER.land]);
-  const regionVisited = useDerivedValue(() => regionPaths.value[LAYER.visited]);
-  const regionWish = useDerivedValue(() => regionPaths.value[LAYER.wish]);
-  const regionOutline = useDerivedValue(() => regionPaths.value[LAYER.outline]);
-  const selectedRegionPath = useDerivedValue(() => regionPaths.value[SELECTED_PATH]);
-  const leftRegionPath = useDerivedValue(() => regionPaths.value[LEFT_PATH]);
   // Filled as their layer would be, so only their outline changes.
   const selectedRegionFill = useDerivedValue(() => fillOf(regionLayers.value?.layers[selectedRegion.value]));
   const leftRegionFill = useDerivedValue(() => fillOf(regionLayers.value?.layers[leftRegion.value]));
-  const graticule = usePathValue((path) => {
-    'worklet';
-    if (viewport.value.width === 0) return;
-    traceGraticule(frame(), path);
-  });
-  const cx = useDerivedValue(() => viewport.value.width / 2);
-  const cy = useDerivedValue(() => globeCenterY(viewport.value) - lift.value);
-  const r = useDerivedValue(() =>
-    discRadius(frameFor({ lon: lon.value, lat: lat.value, zoom: zoom.value }, viewport.value, lift.value)),
-  );
 
   useEffect(() => {
     shownPosition.value = position;
   }, [shownPosition, position]);
-  // The camera is read here, not through frame(): a derived value only re-runs when a
-  // shared value it reads directly changes, so the dot would stay where the globe opened.
-  const dot = useDerivedValue(() => {
-    const point = shownPosition.value;
-    if (!point || viewport.value.width === 0) return { x: 0, y: 0, visible: false };
-    const camera = { lon: lon.value, lat: lat.value, zoom: zoom.value };
-    return projectPoint(frameFor(camera, viewport.value, lift.value), point);
-  });
-  const dotX = useDerivedValue(() => dot.value.x);
-  const dotY = useDerivedValue(() => dot.value.y);
-  const dotOpacity = useDerivedValue(() => (dot.value.visible ? 1 : 0));
-  // The Cities on the near side, as one path of rings and one of dots, re-traced every frame
-  // like the Countries.
-  const cityBuilders = useSharedValue(useMemo(() => [Skia.PathBuilder.Make(), Skia.PathBuilder.Make()], []));
-  const cityPaths = useSharedValue(useMemo(() => [Skia.Path.Make(), Skia.Path.Make()], []));
-  useDerivedValue(() => {
-    if (viewport.value.width === 0) return;
-    const [rings, dots] = cityBuilders.value;
-    rings.reset();
-    dots.reset();
-    const camera = frameFor({ lon: lon.value, lat: lat.value, zoom: zoom.value }, viewport.value, lift.value);
-    for (const point of cities.value) {
-      const { x, y, visible } = projectPoint(camera, point);
-      if (!visible) continue;
-      rings.addCircle(x, y, CITY_RADIUS + CITY_RING);
-      dots.addCircle(x, y, CITY_RADIUS);
-    }
-    cityPaths.value = [rings.build(), dots.build()];
-    notifyChange(cityPaths);
-  });
-  const cityRings = useDerivedValue(() => cityPaths.value[0]);
-  const cityDots = useDerivedValue(() => cityPaths.value[1]);
 
-  // The thumbnails: each one's opacity, which the frame callback moves towards its target,
-  // and, from the last frame drawn, where those shown are, for a tap.
+  // The thumbnails and the Cities' dots: each one's opacity, which the frame callback moves
+  // towards its target; and, from the last frame drawn, where the thumbnails shown are, for a tap.
   const thumbnailAlpha = useSharedValue<Record<string, number>>({});
   const thumbnailTarget = useSharedValue<Record<string, number>>({});
   const thumbnailSpots = useSharedValue<{ x: number; y: number; key: string }[]>([]);
+  const cityAlpha = useSharedValue<Record<string, number>>({});
+  const cityTarget = useSharedValue<Record<string, number>>({});
+  /**
+   * Where the scene placed the Cities and the thumbnails this frame, by their index in the
+   * lists it placed: filled in place, never made anew. The overlay draws them from it.
+   */
+  const placed = useSharedValue(useMemo(newPlacement, []));
   const paints = useMemo(() => {
     const shadow = Skia.Paint();
     shadow.setColor(Skia.Color('rgba(27,26,23,0.3)'));
@@ -559,49 +607,147 @@ export const Globe = memo(function Globe({
     counter.setColor(Skia.Color(colors.ink1));
     const count = Skia.Paint();
     count.setColor(Skia.Color(colors.paper0));
-    return { shadow, ring, image, counter, count };
+    const cityRing = Skia.Paint();
+    cityRing.setAntiAlias(true);
+    cityRing.setColor(Skia.Color(colors.paper0));
+    const cityDot = Skia.Paint();
+    cityDot.setAntiAlias(true);
+    cityDot.setColor(Skia.Color(colors.globePin));
+    /** A City's ring, then its dot, with their radii. */
+    const cityLayers = [
+      [cityRing, CITY_RADIUS + CITY_RING],
+      [cityDot, CITY_RADIUS],
+    ] as const;
+    return { shadow, ring, image, counter, count, cityLayers };
   }, []);
   // Null until loaded: the counters wait for it.
   const counterFont = useFont(COUNTER_FONT, text.overline.fontSize);
-  const thumbnailPicture = useDerivedValue(() => {
-    const { width, height } = viewport.value;
-    const list = thumbnails.value;
-    const alpha = thumbnailAlpha.value;
-    const camera = frameFor({ lon: lon.value, lat: lat.value, zoom: zoom.value }, viewport.value, lift.value);
-    const selection = { country: selectedCountry.value, region: selectedRegion.value };
-    const d = thumbnailDiameter(zoom.value);
-    const xs: number[] = [];
-    const ys: number[] = [];
-    const counts: number[] = [];
-    const shown: boolean[] = [];
-    const showings: number[] = [];
-    for (const t of list) {
-      const { x, y, visible } = projectPoint(camera, t);
-      const showing = shownAs(t, selection, zoom.value);
-      xs.push(x);
-      ys.push(y - d / 2 - THUMBNAIL_LIFT);
-      showings.push(showing);
-      counts.push(showing === OWN ? t.ownCount : t.count);
-      shown.push(visible && showing !== HIDDEN && (showing !== OWN || t.ownImage !== null));
+
+  const scene = useDerivedValue<Scene>(() => {
+    const start = performance.now();
+    const size = viewport.value;
+    const ready = size.width > 0;
+    const zoomed = zoom.value;
+    // The camera of this frame, read once: everything below is drawn with it.
+    const camera = frameFor({ lon: lon.value, lat: lat.value, zoom: zoomed }, size, lift.value);
+
+    const sinks = builders.value;
+    for (const sink of sinks) sink.reset();
+    let drawn = ready ? traceCountries(countryGeometry, camera, detailArea, sinks, layers.value) : 0;
+    const shown = regions.value;
+    const shownLayers = regionTraced.value;
+    // Their layers may arrive a frame before or after them: never draw one with the other's.
+    const withRegions = ready && fade.value > 0 && shown !== null && shownLayers?.country === shown.country;
+    const regionSinks = regionBuilders.value;
+    if (withRegions) {
+      for (const sink of regionSinks) sink.reset();
+      drawn += traceCountries(shown.geometry, camera, detailArea, regionSinks, shownLayers.traced);
     }
-    const kept = keepApart(xs, ys, counts, shown, d);
-    const target: Record<string, number> = {};
+    const none = emptyPath.value;
+    const graticule = graticuleBuilder.value;
+    graticule.reset();
+    if (ready) traceGraticule(camera, graticule);
+
+    const point = shownPosition.value;
+    const location = point && ready ? projectPoint(camera, point) : null;
+
+    // The Cities, shown as the zoom and the selection say, and the thumbnails over them.
+    const selection = { country: selectedCountry.value, region: selectedRegion.value };
+    // Filled in place on the UI thread, where the shared value holds its own copy. A derived
+    // value first runs once on the JS thread, where that object is frozen, handed to the UI
+    // thread: there, a placement of its own.
+    const at = (globalThis as { _WORKLET?: boolean })._WORKLET ? placed.value : newPlacement();
+    const cityList = cities.value;
+    at.cities = cityList;
+    at.cityXs.length = at.cityYs.length = at.cityVisible.length = at.cityShown.length = cityList.length;
+    for (let i = 0; i < cityList.length; i++) {
+      const projected = projectPoint(camera, cityList[i]);
+      at.cityXs[i] = projected.x;
+      at.cityYs[i] = projected.y;
+      at.cityVisible[i] = projected.visible;
+      at.cityShown[i] = cityDotShown(cityList[i], selection, zoomed);
+    }
+    const list = thumbnails.value;
+    const d = thumbnailDiameter(zoomed);
+    at.thumbnails = list;
+    at.diameter = d;
+    at.xs.length = at.ys.length = at.counts.length = at.showings.length = at.shown.length = list.length;
+    for (let i = 0; i < list.length; i++) {
+      const t = list[i];
+      const projected = projectPoint(camera, t);
+      const showing = shownAs(t, selection, zoomed);
+      at.xs[i] = projected.x;
+      at.ys[i] = projected.y - d / 2 - THUMBNAIL_LIFT;
+      at.showings[i] = showing;
+      at.counts[i] = showing === OWN ? t.ownCount : t.count;
+      at.shown[i] = projected.visible && showing !== HIDDEN && (showing !== OWN || t.ownImage !== null);
+    }
+    at.kept = keepApart(at.xs, at.ys, at.counts, at.shown, d);
+
+    points.value = drawn;
+    buildMs.value = performance.now() - start;
+    return {
+      cx: size.width / 2,
+      cy: globeCenterY(size) - lift.value,
+      r: discRadius(camera),
+      width: size.width,
+      height: size.height,
+      graticule: graticule.build(),
+      land: sinks[LAYER.land].build(),
+      visited: sinks[LAYER.visited].build(),
+      wish: sinks[LAYER.wish].build(),
+      outline: sinks[LAYER.outline].build(),
+      visitedTint: sinks[LAYER.visitedTint].build(),
+      wishTint: sinks[LAYER.wishTint].build(),
+      regionLand: withRegions ? regionSinks[LAYER.land].build() : none,
+      regionVisited: withRegions ? regionSinks[LAYER.visited].build() : none,
+      regionWish: withRegions ? regionSinks[LAYER.wish].build() : none,
+      regionOutline: withRegions ? regionSinks[LAYER.outline].build() : none,
+      selectedRegion: withRegions ? regionSinks[SELECTED_PATH].build() : none,
+      leftRegion: withRegions ? regionSinks[LEFT_PATH].build() : none,
+      locationX: location ? location.x : 0,
+      locationY: location ? location.y : 0,
+      locationOpacity: location?.visible ? 1 : 0,
+    };
+  });
+
+  // The Cities' dots and the thumbnails over them, as one picture, drawn where the scene placed
+  // them: it runs after the scene, in the same pass, so they never leave the land they are on.
+  // Kept apart from the scene so their fading does not trace the Countries anew every frame.
+  const overlay = useDerivedValue(() => {
+    const { width, height } = scene.value;
+    const at = placed.value;
+    const cityList = at.cities;
+    const list = at.thumbnails;
+    const cityAlphas = cityAlpha.value;
+    const alpha = thumbnailAlpha.value;
+    const cityTargets = retarget(cityTarget.value, cityList, cityKey, at.cityShown);
+    if (cityTargets) cityTarget.value = cityTargets;
+    const targets = retarget(thumbnailTarget.value, list, thumbnailKey, at.kept);
+    if (targets) thumbnailTarget.value = targets;
     const spots: { x: number; y: number; key: string }[] = [];
-    list.forEach((t, i) => {
-      target[t.key] = kept[i] ? 1 : 0;
-      if (kept[i] && (alpha[t.key] ?? 0) > 0.5) spots.push({ x: xs[i], y: ys[i], key: t.key });
-    });
-    thumbnailTarget.value = target;
+    for (let i = 0; i < list.length; i++) {
+      if (at.kept[i] && (alpha[list[i].key] ?? 0) > 0.5) spots.push({ x: at.xs[i], y: at.ys[i], key: list[i].key });
+    }
     thumbnailSpots.value = spots;
     return createPicture(
       (canvas) => {
-        const r = d / 2;
+        // All the rings, then all the dots: a ring never covers a neighbour's dot.
+        for (const [paint, radius] of paints.cityLayers) {
+          for (let i = 0; i < cityList.length; i++) {
+            const a = cityAlphas[cityList[i].id] ?? 0;
+            if (a <= 0 || !at.cityVisible[i]) continue;
+            paint.setAlphaf(a);
+            canvas.drawCircle(at.cityXs[i], at.cityYs[i], radius, paint);
+          }
+        }
+        const r = at.diameter / 2;
         list.forEach((t, i) => {
           const a = alpha[t.key] ?? 0;
           // Off the near side, a thumbnail goes at once rather than fading over the rim.
-          if (a <= 0 || !shown[i]) return;
-          const image = showings[i] === OWN && t.ownImage ? t.ownImage : t.image;
-          const [x, y] = [xs[i], ys[i]];
+          if (a <= 0 || !at.shown[i]) return;
+          const image = at.showings[i] === OWN && t.ownImage ? t.ownImage : t.image;
+          const [x, y] = [at.xs[i], at.ys[i]];
           paints.shadow.setAlphaf(0.3 * a);
           canvas.drawCircle(x, y + 2, r, paints.shadow);
           paints.ring.setAlphaf(a);
@@ -616,9 +762,10 @@ export const Globe = memo(function Globe({
           paints.image.setAlphaf(a);
           canvas.drawImageRect(image, Skia.XYWHRect((w - side) / 2, (h - side) / 2, side, side), disc, paints.image);
           canvas.restore();
-          if (counts[i] < 2 || !counterFont) return;
+          const count = at.counts[i];
+          if (count < 2 || !counterFont) return;
           // The counter: an ink pill ringed with paper, over the top right.
-          const label = String(counts[i]);
+          const label = String(count);
           const textWidth = counterFont.measureText(label).width;
           const pill = Math.max(COUNTER_HEIGHT, textWidth + 8);
           const [px, py] = [x + r * 0.7 - pill / 2, y - r * 0.7 - COUNTER_HEIGHT / 2];
@@ -667,9 +814,12 @@ export const Globe = memo(function Globe({
         select(t.country);
         return;
       }
+      // A dot hidden, or still fading in, is not there to tap: the land under it is.
       let city: string | null = null;
       let nearestCity = CITY_REACH;
+      const cityAlphas = cityAlpha.value;
       for (const dot of cities.value) {
+        if ((cityAlphas[dot.id] ?? 0) <= 0.5) continue;
         const { x, y, visible } = projectPoint(f, dot);
         const distance = Math.hypot(x - e.x, y - e.y);
         if (visible && distance < nearestCity) {
@@ -795,19 +945,12 @@ export const Globe = memo(function Globe({
       lift.value = shot.lift;
       flight.value = done ? null : { ...flying, elapsed };
     }
-    // Thumbnails fade towards being shown or not; nothing is written once they are there.
-    const target = thumbnailTarget.value;
-    const alpha = thumbnailAlpha.value;
-    let fading = false;
-    const faded: Record<string, number> = {};
-    for (const key in target) {
-      const from = alpha[key] ?? 0;
-      const to = target[key];
-      const step = dt / duration.base;
-      faded[key] = to > from ? Math.min(to, from + step) : Math.max(to, from - step);
-      if (faded[key] !== from) fading = true;
-    }
-    if (fading) thumbnailAlpha.value = faded;
+    // Thumbnails and Cities' dots fade towards being shown or not; nothing is written once they are there.
+    const step = dt / duration.base;
+    const thumbnailsFaded = fadeTowards(thumbnailAlpha.value, thumbnailTarget.value, step);
+    if (thumbnailsFaded) thumbnailAlpha.value = thumbnailsFaded;
+    const citiesFaded = fadeTowards(cityAlpha.value, cityTarget.value, step);
+    if (citiesFaded) cityAlpha.value = citiesFaded;
     if (!measuring) return;
     // fps and build time while the globe moves, as in the prototype's panel.
     const w = meter.value;
@@ -869,35 +1012,33 @@ export const Globe = memo(function Globe({
       }}>
       <GestureDetector gesture={gestures}>
         <Canvas style={StyleSheet.absoluteFill}>
-          <Circle cx={cx} cy={cy} r={r} color={colors.globeOcean} />
-          <Path path={graticule} style="stroke" strokeWidth={0.5} color={colors.globeGraticule} />
-          <Path path={land} color={colors.globeLand} />
-          <Path path={visited} color={colors.stateVisited} />
-          <Path path={wish} color={colors.stateWish} />
-          <Path path={visitedTint} color={visitedTintColor} />
-          <Path path={wishTint} color={wishTintColor} />
-          {[land, visited, wish, outlineOnly, visitedTint, wishTint].map((path, i) => (
-            <Path key={i} path={path} style="stroke" strokeWidth={0.5} color={colors.globeStroke} />
+          <Circle cx={part(scene, 'cx')} cy={part(scene, 'cy')} r={part(scene, 'r')} color={colors.globeOcean} />
+          <Path path={part(scene, 'graticule')} style="stroke" strokeWidth={0.5} color={colors.globeGraticule} />
+          <Path path={part(scene, 'land')} color={colors.globeLand} />
+          <Path path={part(scene, 'visited')} color={colors.stateVisited} />
+          <Path path={part(scene, 'wish')} color={colors.stateWish} />
+          <Path path={part(scene, 'visitedTint')} color={visitedTintColor} />
+          <Path path={part(scene, 'wishTint')} color={wishTintColor} />
+          {LAND_STROKED.map((key) => (
+            <Path key={key} path={part(scene, key)} style="stroke" strokeWidth={0.5} color={colors.globeStroke} />
           ))}
           <Group opacity={fade}>
-            <Path path={regionVisited} color={colors.stateVisited} />
-            <Path path={regionWish} color={colors.stateWish} />
-            <Path path={selectedRegionPath} color={selectedRegionFill} />
-            <Path path={leftRegionPath} color={leftRegionFill} />
-            {[regionLand, regionVisited, regionWish, regionOutline, selectedRegionPath, leftRegionPath].map((path, i) => (
-              <Path key={i} path={path} style="stroke" strokeWidth={REGION_STROKE} color={colors.paper0} />
+            <Path path={part(scene, 'regionVisited')} color={colors.stateVisited} />
+            <Path path={part(scene, 'regionWish')} color={colors.stateWish} />
+            <Path path={part(scene, 'selectedRegion')} color={selectedRegionFill} />
+            <Path path={part(scene, 'leftRegion')} color={leftRegionFill} />
+            {REGIONS_STROKED.map((key) => (
+              <Path key={key} path={part(scene, key)} style="stroke" strokeWidth={REGION_STROKE} color={colors.paper0} />
             ))}
-            <Path path={leftRegionPath} style="stroke" strokeWidth={SELECTED_STROKE} color={colors.ink1} opacity={leftEmphasis} />
-            <Path path={selectedRegionPath} style="stroke" strokeWidth={SELECTED_STROKE} color={colors.ink1} opacity={emphasis} />
+            <Path path={part(scene, 'leftRegion')} style="stroke" strokeWidth={SELECTED_STROKE} color={colors.ink1} opacity={leftEmphasis} />
+            <Path path={part(scene, 'selectedRegion')} style="stroke" strokeWidth={SELECTED_STROKE} color={colors.ink1} opacity={emphasis} />
           </Group>
-          <Group opacity={dotOpacity}>
-            <Circle cx={dotX} cy={dotY} r={LOCATION_RADIUS + LOCATION_RING} color={colors.paper0} />
-            <Circle cx={dotX} cy={dotY} r={LOCATION_RADIUS} color={colors.globeLocation} />
+          <Group opacity={part(scene, 'locationOpacity')}>
+            <Circle cx={part(scene, 'locationX')} cy={part(scene, 'locationY')} r={LOCATION_RADIUS + LOCATION_RING} color={colors.paper0} />
+            <Circle cx={part(scene, 'locationX')} cy={part(scene, 'locationY')} r={LOCATION_RADIUS} color={colors.globeLocation} />
           </Group>
-          <Path path={cityRings} color={colors.paper0} />
-          <Path path={cityDots} color={colors.globePin} />
-          <Picture picture={thumbnailPicture} />
-          <Circle cx={cx} cy={cy} r={r} style="stroke" strokeWidth={1} color={colors.globeRim} />
+          <Picture picture={overlay} />
+          <Circle cx={part(scene, 'cx')} cy={part(scene, 'cy')} r={part(scene, 'r')} style="stroke" strokeWidth={1} color={colors.globeRim} />
         </Canvas>
       </GestureDetector>
 

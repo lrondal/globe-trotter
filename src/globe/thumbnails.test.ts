@@ -2,7 +2,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { HIDDEN, keepApart, OWN, PLACE, PHOTO_ZOOM, shownAs, thumbnailDiameter, TIER, type Thumbnail } from './thumbnails.ts';
+import {
+  CITY_ZOOM,
+  cityDotShown,
+  HIDDEN,
+  keepApart,
+  OWN,
+  PLACE,
+  PHOTO_ZOOM,
+  shownAs,
+  thumbnailDiameter,
+  TIER,
+  type Thumbnail,
+} from './thumbnails.ts';
 
 // Japan is Country 0 of the Atlas, with Regions Kansai (0) and Kanto (1); France is Country 1;
 // Okinawa, an Island of Japan, is 2.
@@ -67,4 +79,29 @@ test('of thumbnails that collide, the one with the most Photos stays', () => {
 test('a hidden thumbnail neither stays nor pushes another out; at equal Photos, the first stays', () => {
   assert.deepEqual(keepApart([0, 20], [0, 0], [9, 1], [false, true], 30), [false, true]);
   assert.deepEqual(keepApart([0, 20], [0, 0], [2, 2], [true, true], 30), [true, false]);
+});
+
+test('without a selection, a City shows its dot only from the city zoom on', () => {
+  assert.equal(cityDotShown(kyoto, nothing, CITY_ZOOM - 0.1), false);
+  assert.equal(cityDotShown(kyoto, nothing, CITY_ZOOM), true);
+});
+
+test("a Country or an Island selected shows its Cities' dots at any zoom; the others still wait for the city zoom", () => {
+  const japanSelected = { country: 0, region: -1 };
+  for (const city of [kyoto, tokyo]) assert.equal(cityDotShown(city, japanSelected, 1), true);
+  assert.equal(cityDotShown(naha, japanSelected, 1), false);
+  assert.equal(cityDotShown(naha, japanSelected, CITY_ZOOM), true);
+  assert.equal(cityDotShown(naha, { country: 2, region: -1 }, 1), true);
+});
+
+test("a Region selected shows its Cities' dots at any zoom; the rest of its Country waits for the city zoom", () => {
+  const inKansai = { country: 0, region: 0 };
+  assert.equal(cityDotShown(kyoto, inKansai, 1), true);
+  assert.equal(cityDotShown(tokyo, inKansai, 1), false);
+  assert.equal(cityDotShown(tokyo, inKansai, CITY_ZOOM), true);
+});
+
+test('the City selected keeps its dot at any zoom: its Region, or its Country or Island, is selected with it', () => {
+  assert.equal(cityDotShown(tokyo, { country: 0, region: 1 }, 1), true);
+  assert.equal(cityDotShown(naha, { country: 2, region: -1 }, 1), true);
 });
