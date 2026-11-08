@@ -22,9 +22,10 @@ import { NameDialog } from '@/components/NameDialog';
 import { STATUS_LABEL } from '@/components/StatusBadge';
 import { Toast } from '@/components/Toast';
 import type { Point } from '@/globe/camera';
-import { Globe, type GlobeHandle, type RegionLayers, type ShownRegions } from '@/globe/Globe';
+import { Globe, type CityDot, type GlobeHandle, type RegionLayers, type ShownRegions } from '@/globe/Globe';
 import { layerOf, type Filters } from '@/globe/layers';
 import { useShowOnGlobe } from '@/globe/ShowOnGlobeProvider';
+import type { CityPlace } from '@/globe/thumbnails';
 import { useGlobeThumbnails, type RegionAnchors } from '@/globe/useGlobeThumbnails';
 import type { City, Journal, Mark, PlaceRef, Status } from '@/journal/journal';
 import { useJournal } from '@/journal/JournalProvider';
@@ -97,8 +98,19 @@ const INSIDE_LABEL: Record<PlaceRef['level'], string> = {
  */
 const cityFootprint = ({ lon, lat }: City): Footprint => ({ lon, lat, width: 0.015, height: 0.015 });
 
+/**
+ * Where a City is, by index, as the globe selects it: in its Island, or its Country; in its
+ * Region, by its index in the Country's, or -1 for none, as on an Island.
+ */
+const placeOfCity = (city: City): CityPlace => {
+  const country = indexOf(city.islandId ?? city.countryId);
+  const region = city.regionId && !city.islandId ? atlas.regionsOf(city.countryId).findIndex((r) => r.id === city.regionId) : -1;
+  return { country, region };
+};
+
 /** The Journal's Cities, for the globe. */
-const cityPoints = (journal: Journal) => journal.cities().map(({ id, lon, lat }) => ({ id, lon, lat }));
+const cityPoints = (journal: Journal): CityDot[] =>
+  journal.cities().map((city) => ({ id: city.id, lon: city.lon, lat: city.lat, ...placeOfCity(city) }));
 
 export default function GlobeScreen() {
   const { launch, position, permission, request, locate } = useLocation();
@@ -207,10 +219,9 @@ export default function GlobeScreen() {
 
   /** Flies to a City, framed with what is around it, and opens its sheet; its Region is selected with it. */
   const selectCity = useCallback((target: City) => {
-    const country = indexOf(target.islandId ?? target.countryId);
+    // Its Region, selected with it.
+    const { country, region } = placeOfCity(target);
     if (country < 0) return;
-    // Its Region, by its index in the Country's, selected with it.
-    const region = target.regionId && !target.islandId ? atlas.regionsOf(target.countryId).findIndex((r) => r.id === target.regionId) : -1;
     asked.current = { country, city: target, region: region >= 0 ? target.regionId! : undefined };
     globe.current?.selectCity(country, cityFootprint(target), region);
   }, []);

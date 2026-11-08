@@ -6,6 +6,9 @@
 // Country or an Island selected, its Regions and Cities show theirs whatever the zoom, and
 // the others hide; it keeps its own only with Photos of its own, and shows one of those. A
 // Region selected does the same with its Cities; so does a City selected, which selects its Region.
+//
+// The Cities' dots follow the same rule: from CITY_ZOOM on without a selection, and whatever the
+// zoom for the Cities of the Country, Island or Region selected.
 import type { SkImage } from '@shopify/react-native-skia';
 
 /** What a thumbnail stands for: a Country or an Island, a Region, a City. */
@@ -62,6 +65,21 @@ export function shownAs(t: Thumbnail, selection: Selection, zoom: number): Shown
   if (selection.region >= 0 && t.region !== selection.region) return HIDDEN;
   if (t.tier === selectedTier) return t.ownCount > 0 ? OWN : HIDDEN;
   return t.tier > selectedTier ? PLACE : HIDDEN;
+}
+
+/** Without a selection, a City shows its dot from this zoom on. To tune on the iPhone. */
+export const CITY_ZOOM = 1.9;
+
+/** Where a City is, by index, as the globe selects it: an Island's Cities are in no Region. */
+export type CityPlace = { country: number; region: number };
+
+/** Whether a City's dot shows at `zoom`, with `selection`. */
+export function cityDotShown(city: CityPlace, selection: Selection, zoom: number): boolean {
+  'worklet';
+  // The Cities of the Place selected, whatever the zoom: so the City selected, which selects its
+  // Region, or its Country or Island when it is in no Region.
+  if (city.country === selection.country && (selection.region < 0 || city.region === selection.region)) return true;
+  return zoom >= CITY_ZOOM;
 }
 
 /** The diameter of a thumbnail at `zoom`, in points. */
