@@ -137,15 +137,16 @@ const TRACK_SIZE = 32;
  * The last positions of a finger dragging the globe, in points from where it landed, and
  * when, in milliseconds: a ring buffer filled in place, so a drag allocates nothing.
  */
-export type FingerTrack = { t: number[]; x: number[]; y: number[]; count: number; last: number };
+export type FingerTrack = { t: number[]; x: number[]; y: number[]; count: number; newest: number };
 
+/** An empty FingerTrack, made once on the JS thread and then refilled for every touch. */
 export function newFingerTrack(): FingerTrack {
   return {
     t: new Array<number>(TRACK_SIZE).fill(0),
     x: new Array<number>(TRACK_SIZE).fill(0),
     y: new Array<number>(TRACK_SIZE).fill(0),
     count: 0,
-    last: 0,
+    newest: 0,
   };
 }
 
@@ -153,7 +154,7 @@ export function newFingerTrack(): FingerTrack {
 export function startTrack(track: FingerTrack, t: number) {
   'worklet';
   track.count = 1;
-  track.last = 0;
+  track.newest = 0;
   track.t[0] = t;
   track.x[0] = 0;
   track.y[0] = 0;
@@ -162,12 +163,12 @@ export function startTrack(track: FingerTrack, t: number) {
 /** Records that the finger dragged the globe by (dx, dy) points at time `t`. */
 export function trackFinger(track: FingerTrack, t: number, dx: number, dy: number) {
   'worklet';
-  const from = track.last;
+  const from = track.newest;
   const i = (from + 1) % TRACK_SIZE;
   track.t[i] = t;
   track.x[i] = track.x[from] + dx;
   track.y[i] = track.y[from] + dy;
-  track.last = i;
+  track.newest = i;
   track.count = Math.min(TRACK_SIZE, track.count + 1);
 }
 
@@ -177,7 +178,7 @@ export function trackFinger(track: FingerTrack, t: number, dx: number, dy: numbe
  */
 function trackAt(track: FingerTrack, axis: number[], at: number): number {
   'worklet';
-  let i = track.last;
+  let i = track.newest;
   for (let n = 1; n < track.count; n++) {
     const before = (i + TRACK_SIZE - 1) % TRACK_SIZE;
     if (track.t[before] <= at) {
@@ -188,6 +189,12 @@ function trackAt(track: FingerTrack, axis: number[], at: number): number {
     i = before;
   }
   return axis[i];
+}
+
+/** How far, in points, the finger is from where it was at time `at`. */
+function movedSince(track: FingerTrack, at: number): number {
+  'worklet';
+  return Math.hypot(track.x[track.newest] - trackAt(track, track.x, at), track.y[track.newest] - trackAt(track, track.y, at));
 }
 
 /** A finger that moved less than this many points ... */
@@ -214,11 +221,11 @@ const MAX_FLICK = 1200;
 
 /**
  * The speed of the finger lifted at time `now`, in points per second: its average over the
- * 50 ms up to its last move, so the globe carries on as it turned under it.
+ * VELOCITY_WINDOW_MS up to its last move, so the globe carries on as it turned under it.
  */
 export function fingerVelocity(track: FingerTrack, now: number): Offset {
   'worklet';
-  const end = Math.max(track.t[track.last], now - LIFT_LAG_MS);
+  const end = Math.max(track.t[track.newest], now - LIFT_LAG_MS);
   const start = end - VELOCITY_WINDOW_MS;
   return {
     x: ((trackAt(track, track.x, end) - trackAt(track, track.x, start)) * 1000) / VELOCITY_WINDOW_MS,
@@ -229,19 +236,14 @@ export function fingerVelocity(track: FingerTrack, now: number): Offset {
 /** The spin a finger leaves the globe with when lifted at time `now`; null if the globe stays still. */
 export function release(view: View, track: FingerTrack, now: number, radius: number): Spin | null {
   'worklet';
-  const held = now - STILL_MS;
-  const moved = Math.hypot(
-    track.x[track.last] - trackAt(track, track.x, held),
-    track.y[track.last] - trackAt(track, track.y, held),
-  );
-  if (moved < STILL_PT) return null;
+  if (movedSince(track, now - STILL_MS) < STILL_PT) return null;
   const v = fingerVelocity(track, now);
   const speed = Math.hypot(v.x, v.y);
   // Only the speed beyond the dead zone carries on, so a launch grows from nothing.
-  const launched = Math.min(MAX_FLICK, Math.max(0, speed - FLICK_DEAD_ZONE));
-  if (launched === 0) return null;
+  const launchSpeed = Math.min(MAX_FLICK, Math.max(0, speed - FLICK_DEAD_ZONE));
+  if (launchSpeed === 0) return null;
   const k = degreesPerPoint(view, radius);
-  const scale = launched / speed;
+  const scale = launchSpeed / speed;
   return { lon: -v.x * scale * k.lon, lat: v.y * scale * k.lat };
 }
 

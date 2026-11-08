@@ -13,8 +13,8 @@ import {
   holdZoom,
   MAX_ZOOM,
   MIN_ZOOM,
-  pinch,
   newFingerTrack,
+  pinch,
   release,
   startTrack,
   trackFinger,
@@ -137,11 +137,14 @@ test('holding + zooms at the same pace at every zoom, a tenfold every second', (
 /** 120 Hz, as a ProMotion iPhone reports the finger. */
 const TOUCH_MS = 1000 / 120;
 
+/** A stretch of a drag: the finger moving at (vx, vy) pt/s for ms milliseconds. */
+type Leg = [vx: number, vy: number, ms: number];
+
 /**
  * A finger that lands at time 0 and moves at each (vx, vy) pt/s for its duration in ms, one
  * after the other, reported every TOUCH_MS. Returns the track and when the last leg ended.
  */
-function finger(...legs: [vx: number, vy: number, ms: number][]) {
+function finger(...legs: Leg[]) {
   const track = newFingerTrack();
   let t = 0;
   startTrack(track, t);
@@ -187,7 +190,7 @@ test('a finger slowing to a stop before lifting releases slower and slower', () 
 });
 
 /** How fast, in °/s, the globe spins once a finger is lifted at the end of the drag. */
-function launch(view: View, ...legs: [vx: number, vy: number, ms: number][]) {
+function launch(view: View, ...legs: Leg[]) {
   const { track, end } = finger(...legs);
   const spin = release(view, track, end, RADIUS);
   return spin ? Math.hypot(spin.lon, spin.lat) : 0;

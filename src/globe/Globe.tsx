@@ -233,8 +233,7 @@ export const Globe = memo(function Globe({
   /** Points the finger left down after a pinch still has to move before it drags the globe. */
   const dragSlack = useSharedValue(0);
   /** Where the finger dragged the globe lately, for how fast it is lifted. Filled in place. */
-  const [initialTrack] = useState(newFingerTrack);
-  const fingerTrack = useSharedValue(initialTrack);
+  const fingerTrack = useSharedValue(useMemo(newFingerTrack, []));
   /** Fingers down at the last drag update. */
   const dragPointers = useSharedValue(0);
   const pinchStartZoom = useSharedValue(start.zoom);
