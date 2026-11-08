@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 
 import {
+  autoTurn,
   centerOn,
   coast,
   drag,
@@ -487,4 +488,36 @@ test('the flight eases in and out', () => {
   const steps = shots.map((s, i) => s.view.lon - (i === 0 ? 0 : shots[i - 1].view.lon));
   const middle = steps[Math.floor(steps.length / 2)];
   assert.ok(steps[0] < middle / 5 && steps.at(-1)! < middle / 5, `steps ${steps[0]}, ${middle}, ${steps.at(-1)}`);
+});
+
+/** The globe turning on its own for `ms`, in frames of 1/60 s, from `pace`. */
+function turnFor(view: View, pace: number, ms: number) {
+  let state = { view, pace };
+  for (let t = 0; t < ms - 1e-6; t += 1000 / 60) state = autoTurn(state.view, state.pace, 1000 / 60);
+  return state;
+}
+
+test('turning on its own at full pace, the globe turns 0.08° a frame, west to east like the Earth', () => {
+  const { view } = autoTurn({ lon: 10, lat: 20, zoom: 1 }, 1, 1000 / 60);
+  assert.ok(Math.abs(view.lon - 9.92) < 1e-9, `lon ${view.lon}`);
+  assert.equal(view.lat, 20);
+  assert.equal(view.zoom, 1);
+});
+
+test('turning on its own, the globe crosses the antimeridian', () => {
+  const { view } = turnFor({ lon: -179, lat: 0, zoom: 1 }, 1, 1000);
+  assert.ok(Math.abs(view.lon - 176.2) < 1e-6, `lon ${view.lon}`);
+});
+
+test('zoomed in, the globe turns on its own as fast on screen: ×4 is a quarter of the degrees', () => {
+  const { view } = turnFor({ lon: 0, lat: 0, zoom: 4 }, 1, 1000);
+  assert.ok(Math.abs(view.lon + 1.2) < 1e-6, `lon ${view.lon}`);
+});
+
+test('from a standstill, the globe gathers pace gently, and is at full pace within two seconds', () => {
+  const first = autoTurn({ lon: 0, lat: 0, zoom: 1 }, 0, 1000 / 60);
+  assert.ok(first.view.lon > -0.08 / 10, `first frame turned ${first.view.lon}°`);
+  assert.ok(first.pace > 0);
+  const later = turnFor({ lon: 0, lat: 0, zoom: 1 }, 0, 2000);
+  assert.equal(later.pace, 1);
 });

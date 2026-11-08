@@ -285,6 +285,24 @@ export function coast(view: View, spin: Spin, dt: number): { view: View; spin: S
   return { view: next, spin: stopped ? null : { lon: lonSpin, lat: latSpin } };
 }
 
+/** « Rotation automatique »: degrees a second the whole globe turns on its own, 0.08° a frame at 60 fps. */
+const AUTO_TURN = 4.8;
+/** Milliseconds the globe takes to gather full pace from a standstill, so it never jolts into turning. */
+const AUTO_TURN_RAMP_MS = 1500;
+
+/**
+ * Advances the globe turning on its own by `dt` milliseconds, west to east as the Earth turns,
+ * at `pace` of its full speed: from 0, standing still, it gathers pace to 1. Zoomed in, the
+ * ground passes on screen as fast as with the whole globe in view.
+ */
+export function autoTurn(view: View, pace: number, dt: number): { view: View; pace: number } {
+  'worklet';
+  const next = Math.min(1, pace + dt / AUTO_TURN_RAMP_MS);
+  const eased = next * next * (3 - 2 * next);
+  const lon = wrapLon(view.lon - (AUTO_TURN * eased * dt) / 1000 / view.zoom);
+  return { view: { lon, lat: view.lat, zoom: view.zoom }, pace: next };
+}
+
 /** A point of the globe, in degrees. */
 export type Point = { lon: number; lat: number };
 

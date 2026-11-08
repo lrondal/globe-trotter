@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useIsFocused } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
@@ -27,6 +27,7 @@ import { layerOf, type Filters } from '@/globe/layers';
 import { useShowOnGlobe } from '@/globe/ShowOnGlobeProvider';
 import type { CityPlace } from '@/globe/thumbnails';
 import { useGlobeThumbnails, type RegionAnchors } from '@/globe/useGlobeThumbnails';
+import { usePreferences } from '@/profile/PreferencesProvider';
 import type { City, Journal, Mark, PlaceRef, Status } from '@/journal/journal';
 import { useJournal } from '@/journal/JournalProvider';
 import { placeName } from '@/journal/placeName';
@@ -149,7 +150,10 @@ export default function GlobeScreen() {
   useEffect(() => {
     cities.value = cityPoints(journal);
   }, [cities, journal, version]);
-  const thumbnails = useGlobeThumbnails(journal, version, regionAnchors);
+  const { photosOnGlobe, autoRotate } = usePreferences();
+  // Out of sight, under another tab or screen, the globe does not turn.
+  const focused = useIsFocused();
+  const thumbnails = useGlobeThumbnails(journal, version, regionAnchors, photosOnGlobe);
   const counts = journal.counts();
   // The selected Country's Regions, loaded and decoded on the JS thread while the globe flies
   // on the UI thread, then handed to it with their colours.
@@ -408,6 +412,7 @@ export default function GlobeScreen() {
         onSelectCity={onOpenCity}
         thumbnails={thumbnails}
         onLongPress={onLongPress}
+        autoRotate={autoRotate && focused}
       />
       {screenHeight > 0 && (
         <PlaceSheet

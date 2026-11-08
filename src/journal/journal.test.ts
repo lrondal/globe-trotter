@@ -1115,3 +1115,39 @@ test('only a City is Deleted, and only a Country, an Island or a Region Cleared'
   assert.throws(() => j.deleteCity('392'));
   assert.equal(j.status(kyoto), 'visited');
 });
+
+test('the Profile counts the Countries Visited', () => {
+  const j = journal();
+  j.mark(france, 'visited');
+  j.mark(japan, 'wish');
+  assert.deepEqual(j.visitedCounts(), { countries: 1, regions: 0, islands: 0, cities: 0 });
+});
+
+test('the Profile counts by Status: a City Visited makes its Region and its Country Visited', () => {
+  const j = journal();
+  j.mark(kyoto, 'visited');
+  assert.deepEqual(j.visitedCounts(), { countries: 1, regions: 1, islands: 0, cities: 1 });
+});
+
+test('the Profile counts a Place Visited once, however many Places inside it are', () => {
+  const j = journal();
+  j.mark(japan, 'visited');
+  j.mark(kansai, 'visited');
+  j.mark(kanto, 'visited');
+  j.mark(kyoto, 'visited');
+  assert.deepEqual(j.visitedCounts(), { countries: 1, regions: 2, islands: 0, cities: 1 });
+});
+
+test('the Profile counts an Island Visited by its City, which does not make its Country Visited', () => {
+  const j = journal();
+  j.mark(naha, 'visited');
+  assert.deepEqual(j.visitedCounts(), { countries: 0, regions: 0, islands: 1, cities: 1 });
+});
+
+test('the Profile counts neither Wish nor Places marked Visited no more', () => {
+  const j = journal();
+  j.mark(kyoto, 'wish');
+  j.mark(kansai, 'visited');
+  j.mark(kansai, null);
+  assert.deepEqual(j.visitedCounts(), { countries: 0, regions: 0, islands: 0, cities: 0 });
+});

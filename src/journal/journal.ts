@@ -86,6 +86,17 @@ export type PageGroup = { place: PlaceRef & { level: 'region' | 'island' }; citi
 /** What a Country's page lists of the Journal (see Journal.countryPage). */
 export type CountryPage = { regions: PageGroup[]; islands: PageGroup[]; otherCities: PlaceRef[] };
 
+/** How many Places of each kind are Visited (see Journal.visitedCounts). */
+export type VisitedCounts = { countries: number; regions: number; islands: number; cities: number };
+
+/** The count of VisitedCounts each level of Place goes to. */
+const COUNTED_AS: Record<PlaceRef['level'], keyof VisitedCounts> = {
+  country: 'countries',
+  region: 'regions',
+  island: 'islands',
+  city: 'cities',
+};
+
 /** A checklist item of a Place. */
 export type Todo = { id: number; text: string; done: boolean };
 
@@ -957,6 +968,25 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
     counts(): Record<Status, number> {
       const counts = { visited: 0, wish: 0, unexplored: 0 };
       for (const place of atlas.places) counts[statusOf(place)]++;
+      return counts;
+    },
+    /**
+     * How many Places have the Status Visited, for the Profile: Countries, Regions, Islands
+     * and Cities. Visited outranks all, so a Place is Visited when it is marked so
+     * or holds a Place marked so: every Place up from a Visited Mark is, and no other.
+     */
+    visitedCounts(): VisitedCounts {
+      const visited = new Set<string>();
+      const counts = { countries: 0, regions: 0, islands: 0, cities: 0 };
+      for (const record of places.values()) {
+        if (record.mark !== 'visited') continue;
+        for (const up of chainOf(record)) {
+          const key = keyOf(up);
+          if (visited.has(key)) continue;
+          visited.add(key);
+          counts[COUNTED_AS[up.level]]++;
+        }
+      }
       return counts;
     },
   };
