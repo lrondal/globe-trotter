@@ -93,6 +93,16 @@ test('the search groups Countries, Islands, Regions and Cities', async () => {
   assert.deepEqual((await atlas.search('jap')).countries.map((c) => c.name), ['Japon']);
 });
 
+test('a search within a Country finds only its Islands, Regions and Cities, and no Country', async () => {
+  const found = await atlas.search('cor', { countryId: '250' });
+  assert.deepEqual(found.countries, []);
+  assert.deepEqual(found.islands.map((i) => i.name), ['Corse']);
+  assert.ok(found.regions.every((r) => r.countryId === '250'));
+  assert.ok(found.cities.length > 0 && found.cities.every((c) => c.countryId === '250'));
+  assert.ok((await atlas.search('bordeaux', { countryId: '250' })).cities.some((c) => c.name === 'Bordeaux'));
+  assert.ok(!(await atlas.search('lisb', { countryId: '250' })).cities.some((c) => c.name === 'Lisbonne'));
+});
+
 test('an empty search finds nothing', async () => {
   assert.deepEqual(await atlas.search('  '), { countries: [], islands: [], regions: [], cities: [] });
 });

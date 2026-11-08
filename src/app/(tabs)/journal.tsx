@@ -1,9 +1,10 @@
 // The Journal view (« Carnet »): every Place with a Mark or content, grouped by Country (see
-// Journal.byCountry). A row opens the Place's Note; a group's map pin shows its Country on the globe.
+// Journal.byCountry). A group's header, or its Country's row, opens the Country's page; another
+// row opens the Place's Note; a group's map pin shows its Country on the globe.
 import { router } from 'expo-router';
 import { MapPin } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { SectionList, StyleSheet, Text, View } from 'react-native';
+import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
@@ -49,7 +50,10 @@ export default function JournalScreen() {
     show({ level: 'country', id: countryId });
     router.navigate('/');
   };
-  const openNote = ({ level, id }: PlaceRef) => router.push({ pathname: '/note/[level]/[id]', params: { level, id } });
+  const openCountry = (id: string) => router.push({ pathname: '/country/[id]', params: { id } });
+  /** A Country's page, or another Place's Note. */
+  const open = ({ level, id }: PlaceRef) =>
+    level === 'country' ? openCountry(id) : router.push({ pathname: '/note/[level]/[id]', params: { level, id } });
   /** « Avril 2024 · Visité »: its Visit dates, if any, and its Status. */
   const metaOf = (place: PlaceRef) => {
     const dates = journal.visitDates(place);
@@ -69,9 +73,16 @@ export default function JournalScreen() {
         ListEmptyComponent={<Text style={styles.empty}>Aucun lieu trouvé.</Text>}
         renderSectionHeader={({ section }) => (
           <View style={styles.header}>
-            <Text style={styles.overline} numberOfLines={1}>
-              {section.name}
-            </Text>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={`Ouvrir la page ${section.name}`}
+              hitSlop={8}
+              onPress={() => openCountry(section.countryId)}
+              style={styles.headerLink}>
+              <Text style={styles.overline} numberOfLines={1}>
+                {section.name}
+              </Text>
+            </Pressable>
             <IconButton
               variant="ghost"
               icon={MapPin}
@@ -87,7 +98,7 @@ export default function JournalScreen() {
             status={journal.status(item.place)}
             thumbnail={journal.coverPhoto(item.place)?.thumbnail ?? null}
             last={index === section.data.length - 1}
-            onPress={() => openNote(item.place)}
+            onPress={() => open(item.place)}
           />
         )}
       />
@@ -106,10 +117,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: space[3],
   },
+  headerLink: {
+    flex: 1,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+  },
   // 11 pt, uppercase, +0.08 em.
   overline: {
     ...text.overline,
-    flex: 1,
     color: colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 11 * 0.08,

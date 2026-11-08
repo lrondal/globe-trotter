@@ -70,6 +70,12 @@ export type Place = PlaceRef & {
 /** The Places of the Journal view belonging to one Country, by its id. */
 export type CountryGroup = { countryId: string; places: PlaceRef[] };
 
+/** A Region or an Island of a Country's page, and its Cities there. */
+export type PageGroup = { place: PlaceRef & { level: 'region' | 'island' }; cities: PlaceRef[] };
+
+/** What a Country's page lists of the Journal (see Journal.countryPage). */
+export type CountryPage = { regions: PageGroup[]; islands: PageGroup[]; otherCities: PlaceRef[] };
+
 /** A checklist item of a Place. */
 export type Todo = { id: number; text: string; done: boolean };
 
@@ -640,6 +646,36 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
       return [...groups].map(([countryId, list]) => ({ countryId, places: list }));
     },
     countryOf,
+    /**
+     * A Country's page: its Regions and its Islands with a Mark or content, or holding a City
+     * with one, each with those Cities; and its other such Cities, in no Region nor Island.
+     * The Country itself is not listed. All in no set order.
+     */
+    countryPage(countryId: string): CountryPage {
+      const regions = new Map<string, PlaceRef[]>();
+      const islands = new Map<string, PlaceRef[]>();
+      const otherCities: PlaceRef[] = [];
+      const add = (groups: Map<string, PlaceRef[]>, id: string, city?: PlaceRef) => {
+        const list = groups.get(id) ?? [];
+        groups.set(id, city ? [...list, city] : list);
+      };
+      for (const record of places.values()) {
+        if (record.mark === null && !hasContent(record)) continue;
+        if (countryOf(record) !== countryId) continue;
+        if (record.level === 'region') add(regions, record.id);
+        else if (record.level === 'island') add(islands, record.id);
+        else if (record.level === 'city') {
+          const city = cities.get(record.id)!;
+          const ref = { level: 'city', id: city.id } as const;
+          if (city.islandId) add(islands, city.islandId, ref);
+          else if (city.regionId) add(regions, city.regionId, ref);
+          else otherCities.push(ref);
+        }
+      }
+      const listOf = (level: 'region' | 'island', groups: Map<string, PlaceRef[]>) =>
+        [...groups].map(([id, list]) => ({ place: { level, id }, cities: list }));
+      return { regions: listOf('region', regions), islands: listOf('island', islands), otherCities };
+    },
     /** The Wishlist: every Place whose own Mark is Wish, whatever its level; in no set order. */
     wishlist(): PlaceRef[] {
       return [...places.values()].filter((record) => record.mark === 'wish').map(({ level, id }) => ({ level, id }));

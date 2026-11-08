@@ -12,9 +12,10 @@ type Props = {
   placeholder: string;
   onFocus?: () => void;
   onBlur?: () => void;
+  autoFocus?: boolean;
 };
 
-export function SearchInput({ value, onChangeText, placeholder, onFocus, onBlur }: Props) {
+export function SearchInput({ value, onChangeText, placeholder, onFocus, onBlur, autoFocus }: Props) {
   const [focused, setFocused] = useState(false);
   return (
     <View style={[styles.pill, focused && styles.pillFocused]}>
@@ -31,6 +32,7 @@ export function SearchInput({ value, onChangeText, placeholder, onFocus, onBlur 
           onBlur?.();
         }}
         placeholder={placeholder}
+        autoFocus={autoFocus}
         placeholderTextColor={colors.textMuted}
         returnKeyType="search"
         autoCorrect={false}

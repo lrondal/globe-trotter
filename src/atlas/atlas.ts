@@ -1,7 +1,7 @@
 // The Atlas: the reference Places, read-only. The Countries and Islands are decoded once; the
 // outlines of a Country's Regions, and the list of Cities, are loaded and decoded the first
 // time they are asked for, off the UI thread, and kept.
-import { decodeCities, fold, type CitiesData, type CityRecord } from './cities.ts';
+import { decodeCities, fold, rankOf, type CitiesData, type CityRecord } from './cities.ts';
 import { decodeCountries, type CountriesData, type CountryGeometry, type CountryRecord } from './countries.ts';
 import { decodeRegions, type RegionGeometry, type RegionIndex, type RegionRecord, type RegionsData } from './regions.ts';
 
@@ -36,12 +36,6 @@ const SEARCH_LIMIT = { countries: 5, islands: 5, regions: 5, cities: 20 };
 
 /** Letters of the start of a word the Cities are indexed by. */
 const START = 2;
-
-/** How a folded name matches a folded query: 0 when it starts with it, 1 when a word of it does. */
-function rankOf(name: string, query: string): 0 | 1 | null {
-  if (name.startsWith(query)) return 0;
-  return name.includes(` ${query}`) ? 1 : null;
-}
 
 export function openAtlas({ countries: data, regionIndex, loadRegions, loadCities = async () => '' }: Options) {
   const { countries, geometry } = decodeCountries(data);
@@ -130,14 +124,17 @@ export function openAtlas({ countries: data, regionIndex, loadRegions, loadCitie
     /**
      * The Places whose name, or a word of it, starts with `query`, accents and case aside.
      * Cities rank by population, those found by their name before those found by an alias;
-     * the others alphabetically. Those found by their start come first.
+     * the others alphabetically. Those found by their start come first. Within a Country,
+     * only its Islands, Regions and Cities, and no Country.
      */
-    async search(query: string): Promise<SearchResults> {
+    async search(query: string, within?: { countryId: string }): Promise<SearchResults> {
       const q = fold(query);
       if (q === '') return { countries: [], islands: [], regions: [], cities: [] };
-      const pick = <T>(list: { place: T; key: string }[], limit: number) => {
+      const inside = (place: { countryId?: string }) => !within || place.countryId === within.countryId;
+      const pick = <T extends { countryId?: string }>(list: { place: T; key: string }[], limit: number) => {
         const found: T[][] = [[], []];
         for (const { place, key } of list) {
+          if (!inside(place)) continue;
           const rank = rankOf(key, q);
           if (rank !== null) found[rank].push(place);
         }
@@ -151,6 +148,7 @@ export function openAtlas({ countries: data, regionIndex, loadRegions, loadCitie
       for (const c of read) {
         const { city, keys } = list[c];
         if (found[0].length === SEARCH_LIMIT.cities) break;
+        if (!inside(city)) continue;
         const rank = rankOf(keys[0], q);
         if (rank !== null) {
           found[rank].push(city);
@@ -161,7 +159,7 @@ export function openAtlas({ countries: data, regionIndex, loadRegions, loadCitie
         if (alias > 0) found[2].push({ ...city, alias: city.aliases[alias - 1] });
       }
       return {
-        countries: pick(searchable.countries, SEARCH_LIMIT.countries),
+        countries: within ? [] : pick(searchable.countries, SEARCH_LIMIT.countries),
         islands: pick(searchable.islands, SEARCH_LIMIT.islands),
         regions: pick(searchable.regions, SEARCH_LIMIT.regions),
         cities: found.flat().slice(0, SEARCH_LIMIT.cities),

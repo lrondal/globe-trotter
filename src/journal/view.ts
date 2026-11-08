@@ -1,8 +1,8 @@
 // The Journal view (« Carnet »): the Places of Journal.byCountry as the screen lists them,
 // named, in order, and narrowed to a search. And the Wishlist view (« Envies »), likewise
-// for Journal.wishlist.
+// for Journal.wishlist. And a Country's page, for Journal.countryPage.
 import { fold } from '../atlas/cities.ts';
-import type { CountryGroup, PlaceRef } from './journal.ts';
+import type { CountryGroup, CountryPage, PageGroup, PlaceRef } from './journal.ts';
 
 /** What the Journal view reads of a Place besides the Journal's list. */
 type Lookup = {
@@ -40,6 +40,25 @@ export function wishlistView(
     .sort(byName);
   const plural = rows.length > 1 ? 's' : '';
   return { count: `${rows.length} destination${plural} épinglée${plural}`, rows };
+}
+
+/** A Region or an Island of a Country's page, named, and its Cities there by name. */
+export type ViewBranch = { row: ViewRow; cities: ViewRow[] };
+
+/**
+ * A Country's page (see Journal.countryPage), named: its Regions, its Islands and its other
+ * Cities, each by name, and the Cities of a Region or an Island by name too.
+ */
+export function countryView(
+  page: CountryPage,
+  { nameOf }: Pick<Lookup, 'nameOf'>,
+): { regions: ViewBranch[]; islands: ViewBranch[]; otherCities: ViewRow[] } {
+  const rows = (places: readonly PlaceRef[]) => places.map((place) => ({ place, name: nameOf(place) })).sort(byName);
+  const branches = (groups: readonly PageGroup[]) =>
+    groups
+      .map(({ place, cities }) => ({ row: { place, name: nameOf(place) }, cities: rows(cities) }))
+      .sort((a, b) => byName(a.row, b.row));
+  return { regions: branches(page.regions), islands: branches(page.islands), otherCities: rows(page.otherCities) };
 }
 
 /**
