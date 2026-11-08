@@ -152,6 +152,12 @@ export type GlobeHandle = {
    */
   select(country: number, footprint?: Footprint): void;
   /**
+   * Flies to a City of the Country at this index, framing `footprint`, and opens its sheet. Its
+   * Region, `region` by its index in the Country's RegionGeometry or -1 for none, is selected
+   * with it: the Region's Photo thumbnails show as for the Region selected.
+   */
+  selectCity(country: number, footprint: Footprint, region: number): void;
+  /**
    * Flies to Region `region` of that Country, by its index in the Country's RegionGeometry, as
    * a tap on it does, and tells onSelect the Country. The flight starts at once: towards the
    * Country while its Regions load, then towards the Region once they are there.
@@ -243,6 +249,8 @@ export const Globe = memo(function Globe({
   const leftEmphasis = useSharedValue(0);
   /** The selected Region the globe flies to once its Country's Regions are there, or -1. */
   const awaitedRegion = useSharedValue(-1);
+  /** Whether the sheet shows a City, in the selected Region if it has one, rather than a Region or a Country. */
+  const cityShown = useSharedValue(false);
 
   const [detail, setDetail] = useState<Detail>('standard');
   const [measures, setMeasures] = useState<Measures | null>(null);
@@ -294,6 +302,7 @@ export const Globe = memo(function Globe({
   const select = (country: number, footprint?: Footprint, region = -1) => {
     'worklet';
     awaitedRegion.value = -1;
+    cityShown.value = false;
     // Another Country's Regions go at once; the same Country's stay.
     if (country !== selectedCountry.value) {
       cancelAnimation(fade);
@@ -311,6 +320,7 @@ export const Globe = memo(function Globe({
     'worklet';
     selectedCountry.value = -1;
     awaitedRegion.value = -1;
+    cityShown.value = false;
     fade.value = withTiming(0, fadeTiming);
   };
   const deselect = () => {
@@ -333,6 +343,7 @@ export const Globe = memo(function Globe({
   // A Region tapped in the selected Country, whose Regions stay: the globe flies to it.
   const flyToRegion = (shown: ShownRegions, region: number) => {
     'worklet';
+    cityShown.value = false;
     emphasize(region);
     flyOver(footprintOf(shown.geometry, region));
     scheduleOnRN(onSelectRegion, region);
@@ -344,6 +355,7 @@ export const Globe = memo(function Globe({
     // Pressed again while the Region fades out of the sheet, it is already on its way.
     if (country < 0 || selectedRegion.value < 0) return;
     awaitedRegion.value = -1;
+    cityShown.value = false;
     emphasize(-1);
     flyOver(footprintOf(countryGeometry, country), true);
     scheduleOnRN(onSelect, country);
@@ -355,6 +367,24 @@ export const Globe = memo(function Globe({
     const loaded = shown?.country === country;
     select(country, loaded ? footprintOf(shown.geometry, region) : undefined, region);
     if (!loaded) awaitedRegion.value = region;
+  };
+  // A City selects its Region with it, if it has one: the globe is in the Region.
+  const selectCity = (country: number, footprint: Footprint, region: number) => {
+    'worklet';
+    select(country, footprint, region);
+    cityShown.value = true;
+  };
+  // The selected Region tapped: from a City in it, back to the Region; from the Region, back
+  // to its Country.
+  const leaveSelectedRegion = () => {
+    'worklet';
+    if (!cityShown.value) {
+      backToCountry();
+      return;
+    }
+    const shown = regions.value;
+    if (shown?.country === selectedCountry.value) flyToRegion(shown, selectedRegion.value);
+    else selectRegion(selectedCountry.value, selectedRegion.value);
   };
   // Recentring lets go of the selected Country: the whole globe faces the point, sheet closed.
   const flyTo = (point: Point) => {
@@ -373,6 +403,7 @@ export const Globe = memo(function Globe({
     ref,
     () => ({
       select: (country, footprint) => scheduleOnUI(select, country, footprint),
+      selectCity: (country, footprint, region) => scheduleOnUI(selectCity, country, footprint, region),
       selectRegion: (country, region) => scheduleOnUI(selectRegion, country, region),
       backToCountry: () => scheduleOnUI(backToCountry),
       deselect: () => scheduleOnUI(deselect),
@@ -621,7 +652,7 @@ export const Globe = memo(function Globe({
       }
       if (t && t.tier === TIER.region) {
         const loaded = regions.value;
-        if (t.country === selectedCountry.value && t.region === selectedRegion.value) backToCountry();
+        if (t.country === selectedCountry.value && t.region === selectedRegion.value) leaveSelectedRegion();
         else if (loaded?.country === t.country) flyToRegion(loaded, t.region);
         else selectRegion(t.country, t.region);
         return;
@@ -646,12 +677,12 @@ export const Globe = memo(function Globe({
       }
       const country = countryAt(countryGeometry, f, detailArea, e.x, e.y);
       // Inside the selected Country, once its Regions show, a tap picks one of them; the one
-      // selected, tapped again, goes back to the Country.
+      // selected, tapped again, goes back to the Country, or to itself from a City in it.
       const shown = regions.value;
       if (country >= 0 && country === selectedCountry.value && shown?.country === country && fade.value > REGIONS_TAPPABLE) {
         const region = countryAt(shown.geometry, f, detailArea, e.x, e.y);
         if (region >= 0 && region === selectedRegion.value) {
-          backToCountry();
+          leaveSelectedRegion();
           return;
         }
         if (region >= 0) {

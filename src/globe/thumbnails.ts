@@ -5,7 +5,7 @@
 // Without a selection, only Countries and Islands show theirs, from PHOTO_ZOOM on. With a
 // Country or an Island selected, its Regions and Cities show theirs whatever the zoom, and
 // the others hide; it keeps its own only with Photos of its own, and shows one of those. A
-// Region selected does the same with its Cities.
+// Region selected does the same with its Cities; so does a City selected, which selects its Region.
 import type { SkImage } from '@shopify/react-native-skia';
 
 /** What a thumbnail stands for: a Country or an Island, a Region, a City. */
