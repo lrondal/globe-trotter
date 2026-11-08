@@ -188,6 +188,30 @@ type Scene = {
 };
 
 /**
+ * Where the scene placed the Cities and the thumbnails in a frame, by their index in the lists
+ * it placed. The overlay draws them from it.
+ */
+function newPlacement() {
+  'worklet';
+  return {
+    cities: [] as CityDot[],
+    cityXs: [] as number[],
+    cityYs: [] as number[],
+    cityVisible: [] as boolean[],
+    cityShown: [] as boolean[],
+    thumbnails: [] as GlobeThumbnail[],
+    xs: [] as number[],
+    ys: [] as number[],
+    counts: [] as number[],
+    showings: [] as number[],
+    /** On the near side and shown as the selection says, before keepApart. */
+    shown: [] as boolean[],
+    kept: [] as boolean[],
+    diameter: 0,
+  };
+}
+
+/**
  * Each opacity of `alpha` a `step` closer to its target, or null when all are there: then
  * nothing is made anew.
  */
@@ -570,27 +594,7 @@ export const Globe = memo(function Globe({
    * Where the scene placed the Cities and the thumbnails this frame, by their index in the
    * lists it placed: filled in place, never made anew. The overlay draws them from it.
    */
-  const placed = useSharedValue(
-    useMemo(
-      () => ({
-        cities: [] as CityDot[],
-        cityXs: [] as number[],
-        cityYs: [] as number[],
-        cityVisible: [] as boolean[],
-        cityShown: [] as boolean[],
-        thumbnails: [] as GlobeThumbnail[],
-        xs: [] as number[],
-        ys: [] as number[],
-        counts: [] as number[],
-        showings: [] as number[],
-        /** On the near side and shown as the selection says, before keepApart. */
-        shown: [] as boolean[],
-        kept: [] as boolean[],
-        diameter: 0,
-      }),
-      [],
-    ),
-  );
+  const placed = useSharedValue(useMemo(newPlacement, []));
   const paints = useMemo(() => {
     const shadow = Skia.Paint();
     shadow.setColor(Skia.Color('rgba(27,26,23,0.3)'));
@@ -649,7 +653,10 @@ export const Globe = memo(function Globe({
 
     // The Cities, shown as the zoom and the selection say, and the thumbnails over them.
     const selection = { country: selectedCountry.value, region: selectedRegion.value };
-    const at = placed.value;
+    // Filled in place on the UI thread, where the shared value holds its own copy. A derived
+    // value first runs once on the JS thread, where that object is frozen, handed to the UI
+    // thread: there, a placement of its own.
+    const at = (globalThis as { _WORKLET?: boolean })._WORKLET ? placed.value : newPlacement();
     const cityList = cities.value;
     at.cities = cityList;
     at.cityXs.length = at.cityYs.length = at.cityVisible.length = at.cityShown.length = cityList.length;
