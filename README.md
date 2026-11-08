@@ -28,6 +28,7 @@ Design and planning are done; the app itself is not built yet.
 | Path | What it is |
 |---|---|
 | `design-system/` | High-fidelity design: tokens, fonts, components, UI kits, and the design handoff. The visual reference for the app. |
+| `docs/install-on-phone.md` | How to install the app on an iPhone (SideStore, free Apple ID) or an Android phone, from the builds the **Release builds** workflow makes. |
 | `docs/agents/` | How coding agents should use this repo (issue tracker, triage labels, domain docs). |
 | `CLAUDE.md` | Instructions for Claude Code. |
 
