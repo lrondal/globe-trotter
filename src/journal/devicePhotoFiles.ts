@@ -45,5 +45,15 @@ export function devicePhotoFiles(): PhotoFiles {
         if (file.exists) file.delete();
       }
     },
+    list() {
+      if (!PHOTOS.exists) return [];
+      return PHOTOS.list().flatMap((entry) => (entry instanceof File ? [entry.name] : []));
+    },
+    read: (name) => new File(PHOTOS, name).bytes(),
+    async write(name, bytes) {
+      PHOTOS.create({ idempotent: true, intermediates: true });
+      // Created, or written over.
+      await new File(PHOTOS, name).write(bytes);
+    },
   };
 }

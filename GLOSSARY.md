@@ -82,8 +82,15 @@ Removing a City together with its Note, Todos and Photos. Only Cities can be del
 _Avoid_: Remove, clear
 
 **Export** (Exporter mes voyages):
-A single file holding all of the user's Places, content and Photos, which can be imported to restore them.
+A single file holding all of the user's Places, content and Photos, which can be imported to restore them. It never holds the user's position.
 _Avoid_: Backup, dump
+
+**Import** (Importer un Export):
+Replacing everything the app holds with an Export, after the user confirms. The whole file is checked first: one that fails is refused, nothing touched.
+
+**Reset** (Réinitialiser toutes les données):
+Deleting, for good and after the user confirms, every Place, Note, Todo and Photo with its files, and the Profile's settings: the app as first installed. Not to be confused with a Clear, which covers one Place.
+_Avoid_: Wipe, delete all
 
 ## Views
 

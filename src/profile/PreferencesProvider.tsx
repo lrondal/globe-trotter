@@ -3,7 +3,7 @@
 import { Storage } from 'expo-sqlite/kv-store';
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 
-import { readPreferences, writePreference, type KeyValueStore, type Preferences } from './preferences';
+import { readPreferences, writePreference, writePreferences, type KeyValueStore, type Preferences } from './preferences';
 
 /** expo-sqlite's key-value Storage, read and written synchronously. */
 const phoneStore: KeyValueStore = {
@@ -12,7 +12,11 @@ const phoneStore: KeyValueStore = {
 };
 
 type PreferencesState = Preferences & {
+  /** All of them together, as an Export carries them. */
+  preferences: Preferences;
   set(key: keyof Preferences, value: boolean): void;
+  /** Sets them all: those of an Import, or the defaults after a reset. */
+  replace(preferences: Preferences): void;
 };
 
 const PreferencesContext = createContext<PreferencesState | null>(null);
@@ -22,9 +26,14 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const state = useMemo<PreferencesState>(
     () => ({
       ...preferences,
+      preferences,
       set(key, value) {
         writePreference(phoneStore, key, value);
         setPreferences((current) => ({ ...current, [key]: value }));
+      },
+      replace(next) {
+        writePreferences(phoneStore, next);
+        setPreferences({ ...next });
       },
     }),
     [preferences],

@@ -5,7 +5,8 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from '
 
 import { colors, fonts, layout, pressFeedback, radius, text } from '@/theme/tokens';
 
-type Variant = 'primary' | 'accent' | 'secondary' | 'ghost';
+/** `danger`: an action that destroys for good, in the feedback red. */
+type Variant = 'primary' | 'accent' | 'secondary' | 'ghost' | 'danger';
 type Size = 'md' | 'sm';
 
 type Props = {
@@ -25,6 +26,8 @@ const VARIANTS: Record<Variant, { bg: string; bgPressed: string; fg: string; bor
   accent: { bg: colors.accent, bgPressed: colors.accentPress, fg: colors.textOnAccent, border: 'transparent' },
   secondary: { bg: colors.surfaceRaised, bgPressed: colors.paper2, fg: colors.textPrimary, border: colors.borderStrong },
   ghost: { bg: 'transparent', bgPressed: colors.paper2, fg: colors.textPrimary, border: 'transparent' },
+  // No darker red among the tokens: the press shows by the scale alone.
+  danger: { bg: colors.feedbackDanger, bgPressed: colors.feedbackDanger, fg: colors.textOnAccent, border: 'transparent' },
 };
 
 const SIZES: Record<Size, { height: number; paddingHorizontal: number; fontSize: number; iconSize: number }> = {
