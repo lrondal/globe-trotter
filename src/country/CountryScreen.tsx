@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
 import { IconButton } from '@/components/IconButton';
-import { PlaceRow } from '@/components/PlaceRow';
+import { HIGHLIGHT_FOR, PlaceRow } from '@/components/PlaceRow';
 import { STATUS_LABEL, StatusBadge } from '@/components/StatusBadge';
 import { Toast } from '@/components/Toast';
 import { useShowOnGlobe } from '@/globe/ShowOnGlobeProvider';
@@ -27,8 +27,6 @@ import { colors, layout, space, text } from '@/theme/tokens';
 const openNote = ({ level, id }: PlaceRef) => router.push({ pathname: '/note/[level]/[id]', params: { level, id } });
 const keyOf = ({ level, id }: PlaceRef) => `${level}:${id}`;
 
-/** How long the row arrived at stays highlighted, its tint fading, in milliseconds. */
-const FOCUS_FOR = 3000;
 /** Where the row arrived at is set: a third of the way down the list. */
 const FOCUS_POSITION = 0.3;
 
@@ -65,7 +63,8 @@ export function CountryScreen({ countryId, focus }: Props) {
   const retries = useRef(3);
   useEffect(() => {
     if (!highlighted) return;
-    const timer = setTimeout(() => setHighlighted(null), FOCUS_FOR);
+    // Once its tint has faded, so that the row scrolled away and back is not tinted again.
+    const timer = setTimeout(() => setHighlighted(null), HIGHLIGHT_FOR);
     return () => clearTimeout(timer);
   }, [highlighted]);
   /** Its index among the list's cells, a header and a footer to each section, for the first render. */
@@ -81,7 +80,6 @@ export function CountryScreen({ countryId, focus }: Props) {
     () => journal.cities().filter((city) => city.custom && city.countryId === countryId),
     [journal, version, countryId],
   );
-  const within = useMemo(() => ({ countryId, customCities }), [countryId, customCities]);
 
   /** « Avril 2024 · Visité »: its Visit dates, if any, and its Status. */
   const metaOf = (place: PlaceRef) => {
@@ -128,7 +126,8 @@ export function CountryScreen({ countryId, focus }: Props) {
             <View style={styles.searchBar}>
               <SearchBar
                 onPick={pick}
-                within={within}
+                countryId={countryId}
+                customCities={customCities}
                 placeholder="Rechercher une région, une île, une ville"
                 autoFocus
               />

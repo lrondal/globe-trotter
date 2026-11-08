@@ -26,6 +26,8 @@ type Props = {
 
 /** How long a highlighted row keeps its tint before it fades, in milliseconds. */
 const HIGHLIGHT_HOLD = 1400;
+/** How long the tint of a highlighted row lasts, faded out, in milliseconds. */
+export const HIGHLIGHT_FOR = HIGHLIGHT_HOLD + duration.flight;
 
 /** The accent's tint under a row arrived at, fading away. */
 function Highlight() {
@@ -33,7 +35,7 @@ function Highlight() {
   useEffect(() => {
     opacity.value = withDelay(
       HIGHLIGHT_HOLD,
-      withTiming(0, { duration: duration.slow * 2, easing: Easing.bezier(...easing.out) }),
+      withTiming(0, { duration: duration.flight, easing: Easing.bezier(...easing.out) }),
     );
   }, [opacity]);
   const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
@@ -50,6 +52,9 @@ export function PlaceRow({ name, meta, status, thumbnail, last, highlighted, act
   return (
     <Pressable
       accessibilityRole="button"
+      // The row is one element to a screen reader: its second action is offered from it.
+      accessibilityActions={action && [{ name: 'action', label: action.label }]}
+      onAccessibilityAction={action && (({ nativeEvent }) => nativeEvent.actionName === 'action' && action.onPress())}
       onPress={onPress}
       style={({ pressed }) => [styles.row, last && styles.last, pressed && { backgroundColor: colors.paper2 }]}>
       {highlighted && <Highlight />}

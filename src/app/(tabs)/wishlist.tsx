@@ -1,5 +1,5 @@
-// The Wishlist view (« Envies »): every Place marked Wish, by name (see Journal.wishlist).
-// « + » searches every Place, and marks Wish the one picked. A row opens the page of its
+// The Wishlist view (Â« Envies Â»): every Place marked Wish, by name (see Journal.wishlist).
+// Â« + Â» searches every Place, and marks Wish the one picked. A row opens the page of its
 // Place's Country, scrolled to it; its map pin flies the globe there, framed for its level.
 import { router } from 'expo-router';
 import { MapPin, Plus } from 'lucide-react-native';
@@ -39,6 +39,8 @@ export default function WishlistScreen() {
     return wishlistView(journal.wishlist(), { nameOf, noteOf, whereOf });
   }, [journal, version]);
 
+  const customCities = useMemo(() => journal.cities().filter((city) => city.custom), [journal, version]);
+
   const pick: typeof wishPicked = (picked) => {
     setAdding(false);
     wishPicked(picked);
@@ -50,7 +52,7 @@ export default function WishlistScreen() {
     router.navigate('/');
   };
   /** The page of its Country, scrolled to it unless it is the Country. */
-  const openInJournal = (place: PlaceRef) => {
+  const openCountryPage = (place: PlaceRef) => {
     if (place.level === 'country') {
       router.push({ pathname: '/country/[id]', params: { id: place.id } });
       return;
@@ -69,7 +71,7 @@ export default function WishlistScreen() {
       {adding && (
         <View style={styles.search}>
           <View style={styles.searchBar}>
-            <SearchBar onPick={pick} autoFocus />
+            <SearchBar onPick={pick} customCities={customCities} autoFocus />
           </View>
           <Button variant="ghost" size="sm" onPress={() => setAdding(false)}>
             Annuler
@@ -78,7 +80,7 @@ export default function WishlistScreen() {
       )}
       {view.rows.length === 0 ? (
         !adding && (
-          <EmptyState message="Aucune envie pour l’instant.">
+          <EmptyState message="Aucune envie pour lâ€™instant.">
             <Button variant="secondary" icon={Plus} onPress={() => setAdding(true)}>
               Ajouter une envie
             </Button>
@@ -100,7 +102,7 @@ export default function WishlistScreen() {
                 thumbnail={journal.coverPhoto(item.place)?.thumbnail ?? null}
                 last={index === view.rows.length - 1}
                 action={{ icon: MapPin, label: `Voir ${item.name} sur le globe`, onPress: () => showOnGlobe(item.place) }}
-                onPress={() => openInJournal(item.place)}
+                onPress={() => openCountryPage(item.place)}
               />
             )}
           />
