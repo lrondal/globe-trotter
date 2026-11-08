@@ -106,6 +106,29 @@ export type Todo = { id: number; text: string; done: boolean };
  */
 export type Photo = { id: number; place: PlaceRef; file: string; thumbnail: string; addedAt: string; caption: string };
 
+/** A Todo with the Place it belongs to. */
+export type PlacedTodo = Todo & { place: PlaceRef };
+
+/**
+ * All the Journal holds, as an Export carries it (see Journal.snapshot). The user's position is
+ * not in it: the Journal never knows it.
+ */
+export type JournalData = {
+  /** Every Place the Journal records, by level then id. */
+  places: Place[];
+  /** Every City in the Journal, by id. */
+  cities: City[];
+  /** Every Todo, each Place's in the user's order, the Places by level then id. */
+  todos: PlacedTodo[];
+  /** Every Photo, in the order they were added. */
+  photos: Photo[];
+  /** The last id given to a Photo, deleted since or not: no id is given twice, even after an Import. */
+  lastPhotoId: number;
+};
+
+/** A Journal holding nothing: the app as first installed. */
+export const EMPTY_JOURNAL: JournalData = { places: [], cities: [], todos: [], photos: [], lastPhotoId: 0 };
+
 /** The longest Caption, in characters. */
 export const CAPTION_MAX = 200;
 
@@ -221,6 +244,9 @@ const toPhoto = (row: PhotoRow): Photo => ({
 const NO_FILES: PhotoFiles = {
   copy: () => Promise.reject(new Error('No PhotoFiles to copy Photos into')),
   remove: () => {},
+  list: () => [],
+  read: (name) => Promise.reject(new Error(`No PhotoFiles to read ${name} from`)),
+  write: (name) => Promise.reject(new Error(`No PhotoFiles to write ${name} into`)),
 };
 
 type CityRow = {
@@ -282,29 +308,40 @@ const placeOf = (key: string): PlaceRef => {
 
 export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date() }: Options) {
   migrate(db);
-  const places = new Map(
-    db.all<Row>('SELECT id, level, mark, visit_date, note, cover_photo_id, planned_date, position FROM places').map((row) => [keyOf(row), toPlace(row)]),
-  );
+  // The Journal's copy in memory, read from the database by load().
+  const places = new Map<string, Place>();
   /** The Todos of each Place that has some, in order. */
   const todos = new Map<string, Todo[]>();
-  for (const row of db.all<TodoRow>('SELECT id, level, place_id, text, done FROM todos ORDER BY position')) {
-    const key = keyOf({ level: row.level, id: row.place_id });
-    todos.set(key, [...(todos.get(key) ?? []), { id: row.id, text: row.text, done: row.done === 1 }]);
-  }
-  let lastTodoId = Math.max(0, ...[...todos.values()].flat().map((todo) => todo.id));
+  let lastTodoId = 0;
   /** The Photos of each Place that has some, in the order they were added. */
   const photos = new Map<string, Photo[]>();
-  for (const row of db.all<PhotoRow>('SELECT id, level, place_id, file, thumbnail, added_at, caption FROM photos ORDER BY id')) {
-    const photo = toPhoto(row);
-    photos.set(keyOf(photo.place), [...(photos.get(keyOf(photo.place)) ?? []), photo]);
-  }
   /** The last id given to a Photo, deleted since or not. */
-  let lastPhotoId = db.all<{ seq: number }>("SELECT seq FROM sqlite_sequence WHERE name = 'photos'")[0]?.seq ?? 0;
-  const cities = new Map(
-    db
-      .all<CityRow>('SELECT id, name, lon, lat, country_id, island_id, region_id, custom FROM cities')
-      .map((row) => [row.id, toCity(row)]),
-  );
+  let lastPhotoId = 0;
+  const cities = new Map<string, City>();
+  /** Reads the whole Journal from the database: when it opens, and once it is replaced. */
+  const load = () => {
+    places.clear();
+    for (const row of db.all<Row>('SELECT id, level, mark, visit_date, note, cover_photo_id, planned_date, position FROM places')) {
+      places.set(keyOf(row), toPlace(row));
+    }
+    todos.clear();
+    for (const row of db.all<TodoRow>('SELECT id, level, place_id, text, done FROM todos ORDER BY position')) {
+      const key = keyOf({ level: row.level, id: row.place_id });
+      todos.set(key, [...(todos.get(key) ?? []), { id: row.id, text: row.text, done: row.done === 1 }]);
+    }
+    lastTodoId = Math.max(0, ...[...todos.values()].flat().map((todo) => todo.id));
+    photos.clear();
+    for (const row of db.all<PhotoRow>('SELECT id, level, place_id, file, thumbnail, added_at, caption FROM photos ORDER BY id')) {
+      const photo = toPhoto(row);
+      photos.set(keyOf(photo.place), [...(photos.get(keyOf(photo.place)) ?? []), photo]);
+    }
+    lastPhotoId = db.all<{ seq: number }>("SELECT seq FROM sqlite_sequence WHERE name = 'photos'")[0]?.seq ?? 0;
+    cities.clear();
+    for (const row of db.all<CityRow>('SELECT id, name, lon, lat, country_id, island_id, region_id, custom FROM cities')) {
+      cities.set(row.id, toCity(row));
+    }
+  };
+  load();
   /** The Place whose Status a Place reaches: a City's Island, or else its Region, or else its Country. */
   const containerOf = (place: PlaceRef): PlaceRef | null => {
     if (place.level !== 'city') return atlas.containerOf(place);
@@ -574,8 +611,71 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
       .filter((record) => record.mark === 'wish' && record.level !== 'country' && countryOf(record) === countryId)
       .sort(byPosition);
 
+  /** Orders by level then id, the order of a snapshot. */
+  const byKey = (a: PlaceRef, b: PlaceRef) => (keyOf(a) < keyOf(b) ? -1 : keyOf(a) > keyOf(b) ? 1 : 0);
+
   return {
     mark,
+    /** All the Journal holds, in a set order: what an Export carries. */
+    snapshot(): JournalData {
+      return {
+        places: [...places.values()].sort(byKey).map((place) => ({ ...place })),
+        cities: [...cities.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).map((city) => ({ ...city })),
+        todos: [...todos]
+          .map(([key, list]) => ({ place: placeOf(key), list }))
+          .sort((a, b) => byKey(a.place, b.place))
+          .flatMap(({ place, list }) => list.map((todo) => ({ ...todo, place }))),
+        photos: [...photos.values()].flat().sort((a, b) => a.id - b.id).map((photo) => ({ ...photo, place: { ...photo.place } })),
+        lastPhotoId,
+      };
+    },
+    /**
+     * Replaces all the Journal holds with `data`, all at once: an Import, or with EMPTY_JOURNAL a
+     * reset. Not undoable. The Photos' files are the caller's to bring and take away; `data` is
+     * taken as it is, checked beforehand (see export/archive.ts).
+     */
+    restore(data: JournalData) {
+      transaction(db, () => {
+        for (const table of ['places', 'todos', 'cities', 'photos']) db.exec(`DELETE FROM ${table}`);
+        for (const p of data.places) {
+          db.run(
+            'INSERT INTO places (level, id, mark, visit_date, note, cover_photo_id, planned_date, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [p.level, p.id, p.mark, p.visitDate, p.note, p.coverPhotoId, p.plannedDate, p.position],
+          );
+        }
+        for (const city of data.cities) keep(city);
+        const positions = new Map<string, number>();
+        for (const todo of data.todos) {
+          const position = positions.get(keyOf(todo.place)) ?? 0;
+          positions.set(keyOf(todo.place), position + 1);
+          db.run('INSERT INTO todos (id, level, place_id, text, done, position) VALUES (?, ?, ?, ?, ?, ?)', [
+            todo.id,
+            todo.place.level,
+            todo.place.id,
+            todo.text,
+            todo.done ? 1 : 0,
+            position,
+          ]);
+        }
+        for (const photo of data.photos) {
+          db.run('INSERT INTO photos (id, level, place_id, file, thumbnail, added_at, caption) VALUES (?, ?, ?, ?, ?, ?, ?)', [
+            photo.id,
+            photo.place.level,
+            photo.place.id,
+            photo.file,
+            photo.thumbnail,
+            photo.addedAt,
+            photo.caption,
+          ]);
+        }
+        // The Photos' ids carry on from the last one given, which may have been deleted since.
+        db.run("DELETE FROM sqlite_sequence WHERE name = 'photos'");
+        const last = Math.max(data.lastPhotoId, ...data.photos.map((photo) => photo.id));
+        if (last > 0) db.run("INSERT INTO sqlite_sequence (name, seq) VALUES ('photos', ?)", [last]);
+      });
+      load();
+      undoable = null;
+    },
     /**
      * Marks a Place Wish, a Place picked to visit, unless it has a Mark of its own: a Place
      * Visited stays Visited. Returns the Mark it had, null when it is newly marked Wish.

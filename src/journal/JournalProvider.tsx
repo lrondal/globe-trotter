@@ -3,6 +3,9 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 
 import { containerOf, countryOf, placeIdsAt, places } from '@/atlas';
+import { applyExport, resetAll, writeExport, type ExportContents } from '@/export/archive';
+import type { ByteSink } from '@/export/bytes';
+import type { Preferences } from '@/profile/preferences';
 
 import { deviceDatabase } from './deviceDatabase';
 import { devicePhotoFiles } from './devicePhotoFiles';
@@ -46,15 +49,22 @@ type JournalState = {
   clear(place: PlaceRef): void;
   /** « Supprimer » a City of the Journal, for good (see Journal.deleteCity). */
   deleteCity(id: string): void;
+  /** Writes an Export of the Journal, its Photos' files and `preferences` to `sink`. */
+  writeExport(sink: ByteSink, preferences: Preferences): Promise<void>;
+  /** Replaces the Journal and its Photos' files with an Export's (see export/archive.ts). */
+  applyExport(contents: ExportContents): Promise<void>;
+  /** Empties the Journal and removes every Photo file, for good. */
+  resetAll(): void;
 };
 
 const JournalContext = createContext<JournalState | null>(null);
 
 export function JournalProvider({ children }: { children: ReactNode }) {
+  const [files] = useState(devicePhotoFiles);
   const [journal] = useState(() => openJournal({
       db: deviceDatabase(),
       atlas: { places, containerOf, locate: placeIdsAt, countryOf },
-      files: devicePhotoFiles(),
+      files,
     }));
   const [version, setVersion] = useState(0);
 
@@ -106,8 +116,21 @@ export function JournalProvider({ children }: { children: ReactNode }) {
       setCoverPhoto: writing(journal.setCoverPhoto),
       clear: writing(journal.clear),
       deleteCity: writing(journal.deleteCity),
+      writeExport: (sink, preferences) => writeExport({ journal, files, preferences }, sink),
+      async applyExport(contents) {
+        try {
+          await applyExport(contents, { journal, files });
+        } finally {
+          // Even half done, files may have changed: the readers read anew.
+          changed();
+        }
+      },
+      resetAll() {
+        resetAll({ journal, files });
+        changed();
+      },
     };
-  }, [journal, version]);
+  }, [journal, files, version]);
 
   return <JournalContext.Provider value={state}>{children}</JournalContext.Provider>;
 }
