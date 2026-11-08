@@ -37,13 +37,23 @@ function placing(journal: Journal, place: PlaceRef, regions: RegionAnchors | nul
   return country < 0 ? null : { lon: city.lon, lat: city.lat, tier: TIER.city, country, region, city: city.id };
 }
 
-export function useGlobeThumbnails(journal: Journal, version: number, regions: RegionAnchors | null): SharedValue<GlobeThumbnail[]> {
+/** With `shown` false, « Photos sur le globe » turned off in the Profile, the globe draws none. */
+export function useGlobeThumbnails(
+  journal: Journal,
+  version: number,
+  regions: RegionAnchors | null,
+  shown: boolean,
+): SharedValue<GlobeThumbnail[]> {
   const thumbnails = useSharedValue<GlobeThumbnail[]>([]);
   /** Decoded images by file name; null while decoding, or when it failed. */
   const images = useRef(new Map<string, SkImage | null>());
   const [decoded, setDecoded] = useState(0);
 
   useEffect(() => {
+    if (!shown) {
+      thumbnails.value = [];
+      return;
+    }
     const imageOf = (name: string): SkImage | null => {
       if (images.current.has(name)) return images.current.get(name)!;
       images.current.set(name, null);
@@ -73,7 +83,7 @@ export function useGlobeThumbnails(journal: Journal, version: number, regions: R
       });
     }
     thumbnails.value = list;
-  }, [thumbnails, journal, version, regions, decoded]);
+  }, [thumbnails, journal, version, regions, decoded, shown]);
 
   return thumbnails;
 }

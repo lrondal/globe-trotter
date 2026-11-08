@@ -56,6 +56,7 @@ import { detentHeight, sheetTiming } from '@/sheet/detents';
 import { colors, duration, easing, fonts, layout, radius, text } from '@/theme/tokens';
 
 import {
+  autoTurn,
   centerOn,
   coast,
   drag,
@@ -318,6 +319,11 @@ type Props = {
   thumbnails: SharedValue<GlobeThumbnail[]>;
   /** The point of the globe under a long press; none off the globe. */
   onLongPress: (point: Point) => void;
+  /**
+   * « Rotation automatique »: the globe turns slowly on its own, as an ornament, while left
+   * alone with no Place selected; touched, flying or coasting, it waits, then gathers pace again.
+   */
+  autoRotate: boolean;
   ref?: Ref<GlobeHandle>;
 };
 
@@ -335,6 +341,7 @@ export const Globe = memo(function Globe({
   onSelectCity,
   thumbnails,
   onLongPress,
+  autoRotate,
   ref,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -372,6 +379,14 @@ export const Globe = memo(function Globe({
   const awaitedRegion = useSharedValue(-1);
   /** Whether the sheet shows a City, in the selected Region if it has one, rather than a Region or a Country. */
   const cityShown = useSharedValue(false);
+  /** The autoRotate prop, for the frame callback; and whether a finger is on the globe. */
+  const rotating = useSharedValue(autoRotate);
+  useEffect(() => {
+    rotating.value = autoRotate;
+  }, [rotating, autoRotate]);
+  const touching = useSharedValue(false);
+  /** 0 to 1, how far the globe turning on its own has gathered pace (see camera.autoTurn). */
+  const turnPace = useSharedValue(0);
 
   // Light detail is plenty for the globe and keeps it smooth while it turns and zooms fast.
   const [detail, setDetail] = useState<Detail>('light');
@@ -864,7 +879,8 @@ export const Globe = memo(function Globe({
     .minDistance(4)
     .averageTouches(true)
     .onBegin(() => {
-      // Touching the globe stops it, in flight too.
+      // Touching the globe stops it, in flight too, and turning on its own.
+      touching.value = true;
       spin.value = null;
       stopFlight();
       pinchedThisTouch.value = false;
@@ -897,6 +913,9 @@ export const Globe = memo(function Globe({
       if (pinchedThisTouch.value && dragSlack.value > 0) return;
       const measured = { x: e.velocityX, y: e.velocityY };
       spin.value = release(view(), fingerTrack.value, performance.now(), measured, globeRadius(viewport.value));
+    })
+    .onFinalize(() => {
+      touching.value = false;
     });
   const pinchGesture = Gesture.Pinch()
     .onStart((e) => {
@@ -944,6 +963,23 @@ export const Globe = memo(function Globe({
       zoom.value = shot.view.zoom;
       lift.value = shot.lift;
       flight.value = done ? null : { ...flying, elapsed };
+    }
+    // Turning on its own only while nothing else moves it and no Place is selected, sheet
+    // closed and globe lowered; anything else stops it at once, and it starts again gently.
+    const idle =
+      !touching.value &&
+      !spin.value &&
+      !flight.value &&
+      holding.value === 0 &&
+      selectedCountry.value < 0 &&
+      sheetHeight.value === 0 &&
+      lift.value === 0;
+    if (rotating.value && idle && dt > 0) {
+      const turned = autoTurn(view(), turnPace.value, dt);
+      turnTo(turned.view);
+      turnPace.value = turned.pace;
+    } else if (turnPace.value !== 0) {
+      turnPace.value = 0;
     }
     // Thumbnails and Cities' dots fade towards being shown or not; nothing is written once they are there.
     const step = dt / duration.base;

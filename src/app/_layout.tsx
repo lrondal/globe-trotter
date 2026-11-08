@@ -18,6 +18,7 @@ import 'react-native-reanimated';
 import { ShowOnGlobeProvider } from '@/globe/ShowOnGlobeProvider';
 import { JournalProvider } from '@/journal/JournalProvider';
 import { LocationProvider, useLocation } from '@/location/LocationProvider';
+import { PreferencesProvider } from '@/profile/PreferencesProvider';
 import { colors } from '@/theme/tokens';
 
 export { ErrorBoundary } from 'expo-router';
@@ -27,11 +28,13 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   return (
     <JournalProvider>
-      <LocationProvider>
-        <ShowOnGlobeProvider>
-          <App />
-        </ShowOnGlobeProvider>
-      </LocationProvider>
+      <PreferencesProvider>
+        <LocationProvider>
+          <ShowOnGlobeProvider>
+            <App />
+          </ShowOnGlobeProvider>
+        </LocationProvider>
+      </PreferencesProvider>
     </JournalProvider>
   );
 }
