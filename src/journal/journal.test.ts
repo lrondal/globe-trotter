@@ -774,3 +774,30 @@ test('a Country’s page lists an Island with a Mark or content, without Cities,
   assert.deepEqual(page(j, '392'), ['island:i-okinawa:', 'autres:']);
   assert.deepEqual(page(j, '250'), ['autres: city:2988507']);
 });
+
+test('wishing marks Wish a Place with no Mark of its own, a City of the list entering the Journal with it', () => {
+  const j = journal();
+  j.mark(kyoto, 'visited');
+  assert.equal(j.wish(kansai), null);
+  assert.equal(j.wish(naha), null);
+  assert.deepEqual(wished(j), [`city:${naha.id}`, 'region:kansai']);
+  assert.equal(j.city(naha.id)?.name, naha.name);
+});
+
+test('wishing a Place marked Visited or Wish already keeps its Mark, and says which', () => {
+  const j = journal();
+  j.mark(france, 'visited');
+  j.mark(kanto, 'wish');
+  assert.equal(j.wish(france), 'visited');
+  assert.equal(j.wish(kanto), 'wish');
+  assert.equal(j.place(france)?.mark, 'visited');
+  assert.deepEqual(wished(j), ['region:kanto']);
+});
+
+test('undo after wishing a Place newly marked takes the Wish back out, and its City with it', () => {
+  const j = journal();
+  j.wish(naha);
+  j.undo();
+  assert.deepEqual(wished(j), []);
+  assert.equal(j.city(naha.id), null);
+});

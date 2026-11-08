@@ -1,62 +1,82 @@
 // A Country's page, from the Journal (« Carnet »): its Regions with their Cities, its Islands
 // with theirs, and its other Cities, those with a Mark or content (see Journal.countryPage).
 // A row opens its Place's Note. « Ajouter une destination » searches this Country only, and
-// marks the Place picked Wish, so it takes its place in the page.
+// marks the Place picked Wish, so it takes its place in the page. Opened on one of its Places,
+// from the Wishlist say, it scrolls to that Place's row and highlights it.
 import { router } from 'expo-router';
 import { ChevronLeft, MapPin, NotebookPen, Plus } from 'lucide-react-native';
-import { useCallback, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { cityPlace } from '@/atlas';
 import { Button } from '@/components/Button';
 import { IconButton } from '@/components/IconButton';
 import { PlaceRow } from '@/components/PlaceRow';
 import { STATUS_LABEL, StatusBadge } from '@/components/StatusBadge';
 import { Toast } from '@/components/Toast';
 import { useShowOnGlobe } from '@/globe/ShowOnGlobeProvider';
-import type { City, PlaceRef } from '@/journal/journal';
+import type { PlaceRef } from '@/journal/journal';
 import { useJournal } from '@/journal/JournalProvider';
 import { placeName } from '@/journal/placeName';
-import { countryView, type ViewBranch, type ViewRow } from '@/journal/view';
-import { SearchBar, type Picked } from '@/search/SearchBar';
+import { countrySections, countryView, rowLocation, type PageRow, type PageSection } from '@/journal/view';
+import { SearchBar } from '@/search/SearchBar';
+import { useWishPick } from '@/search/useWishPick';
 import { formatVisitDates } from '@/sheet/visitDate';
 import { colors, layout, space, text } from '@/theme/tokens';
 
-/** A row of the page: a Region's or an Island's, or a City's, set under its Region or Island. */
-type Row = ViewRow & { indented: boolean };
-type Section = { title: string; data: Row[] };
-
-/** A Region or an Island, then its Cities, set under it. */
-const rowsOf = (branches: readonly ViewBranch[]): Row[] =>
-  branches.flatMap(({ row, cities }) => [
-    { ...row, indented: false },
-    ...cities.map((city) => ({ ...city, indented: true })),
-  ]);
-
 const openNote = ({ level, id }: PlaceRef) => router.push({ pathname: '/note/[level]/[id]', params: { level, id } });
+const keyOf = ({ level, id }: PlaceRef) => `${level}:${id}`;
 
-export function CountryScreen({ countryId }: { countryId: string }) {
-  const { journal, version, mark, undo } = useJournal();
+/** How long the row arrived at stays highlighted, its tint fading, in milliseconds. */
+const FOCUS_FOR = 3000;
+/** Where the row arrived at is set: a third of the way down the list. */
+const FOCUS_POSITION = 0.3;
+
+type Props = {
+  countryId: string;
+  /** One of its Places, to scroll to and highlight. */
+  focus?: PlaceRef;
+};
+
+export function CountryScreen({ countryId, focus }: Props) {
+  const { journal, version, undo } = useJournal();
   const { show } = useShowOnGlobe();
   const insets = useSafeAreaInsets();
   const [adding, setAdding] = useState(false);
-  /** What the last pick did, with « Annuler » when it marked the Place. */
-  const [notice, setNotice] = useState<{ key: number; message: string; undoable: boolean } | null>(null);
-  const hideNotice = useCallback(() => setNotice(null), []);
+  const { pick: wishPicked, notice, hideNotice } = useWishPick();
 
   const country: PlaceRef = { level: 'country', id: countryId };
   const name = placeName(journal, country);
 
   // Read anew after every change to the Journal.
-  const sections = useMemo((): Section[] => {
-    const view = countryView(journal.countryPage(countryId), { nameOf: (place) => placeName(journal, place) });
-    return [
-      { title: 'Régions', data: rowsOf(view.regions) },
-      { title: 'Îles', data: rowsOf(view.islands) },
-      { title: 'Autres villes', data: view.otherCities.map((row) => ({ ...row, indented: false })) },
-    ].filter((section) => section.data.length > 0);
-  }, [journal, version, countryId]);
+  const sections = useMemo(
+    (): PageSection[] =>
+      countrySections(countryView(journal.countryPage(countryId), { nameOf: (place) => placeName(journal, place) })),
+    [journal, version, countryId],
+  );
+
+  // The Place arrived at: its row is rendered from the start, scrolled to once laid out, and
+  // highlighted for a moment.
+  const listRef = useRef<SectionList<PageRow, PageSection>>(null);
+  const [arrival] = useState(() => (focus ? rowLocation(sections, focus) : null));
+  const [highlighted, setHighlighted] = useState(() => (arrival && focus ? keyOf(focus) : null));
+  const scrolled = useRef(false);
+  /** Tries left at scrolling to a row not laid out yet. */
+  const retries = useRef(3);
+  useEffect(() => {
+    if (!highlighted) return;
+    const timer = setTimeout(() => setHighlighted(null), FOCUS_FOR);
+    return () => clearTimeout(timer);
+  }, [highlighted]);
+  /** Its index among the list's cells, a header and a footer to each section, for the first render. */
+  const arrivalCell =
+    arrival && sections.slice(0, arrival.sectionIndex).reduce((n, s) => n + s.data.length + 2, arrival.itemIndex + 1);
+  const scrollToArrival = () => {
+    if (!arrival || scrolled.current) return;
+    scrolled.current = true;
+    // A section's header is its item 0.
+    listRef.current?.scrollToLocation({ ...arrival, itemIndex: arrival.itemIndex + 1, viewPosition: FOCUS_POSITION });
+  };
   const customCities = useMemo(
     () => journal.cities().filter((city) => city.custom && city.countryId === countryId),
     [journal, version, countryId],
@@ -75,18 +95,10 @@ export function CountryScreen({ countryId }: { countryId: string }) {
     router.dismissTo('/');
   };
 
-  /** Marks the Place picked Wish, unless it has a Mark already, and says so with an undo. */
-  const pick = (picked: Picked) => {
+  /** Marks the Place picked Wish, unless it has a Mark already: it is in the page already then. */
+  const pick: typeof wishPicked = (picked) => {
     setAdding(false);
-    const place: PlaceRef | City =
-      picked.level === 'city'
-        ? (journal.city(picked.place.id) ?? cityPlace(picked.place))
-        : { level: picked.level, id: picked.place.id };
-    // A Place already marked, Visited say, keeps its Mark: it is in the page already.
-    const marked = journal.place(place)?.mark != null;
-    if (!marked) mark(place, 'wish');
-    const message = `${picked.place.name} · ${STATUS_LABEL[journal.status(place)]}`;
-    setNotice({ key: Date.now(), message, undoable: !marked });
+    wishPicked(picked);
   };
 
   return (
@@ -132,8 +144,18 @@ export function CountryScreen({ countryId }: { countryId: string }) {
         )}
       </View>
       <SectionList
+        ref={listRef}
         sections={sections}
-        keyExtractor={(row: Row) => `${row.place.level}:${row.place.id}`}
+        keyExtractor={(row: PageRow) => keyOf(row.place)}
+        initialNumToRender={Math.max(10, (arrivalCell ?? 0) + 6)}
+        onContentSizeChange={scrollToArrival}
+        onScrollToIndexFailed={({ averageItemLength, index }) => {
+          // Not laid out yet: near it first, then to it once its row is.
+          listRef.current?.getScrollResponder()?.scrollTo({ y: averageItemLength * index, animated: false });
+          if (retries.current-- <= 0) return;
+          scrolled.current = false;
+          requestAnimationFrame(scrollToArrival);
+        }}
         stickySectionHeadersEnabled={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + space[7] }]}
@@ -147,6 +169,7 @@ export function CountryScreen({ countryId }: { countryId: string }) {
               status={journal.status(item.place)}
               thumbnail={journal.coverPhoto(item.place)?.thumbnail ?? null}
               last={index === section.data.length - 1}
+              highlighted={highlighted === keyOf(item.place)}
               onPress={() => openNote(item.place)}
             />
           </View>

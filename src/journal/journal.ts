@@ -414,18 +414,29 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
    */
   let undoable: { place: PlaceRef; mark: Mark | null; visitDate: string | null; entered: boolean } | null = null;
 
+  /** Sets a Place's Mark; a City given whole enters the Journal with it, if not there yet. */
+  const mark = (place: PlaceRef | City, mark: Mark | null) => {
+    const before = recordOf(place);
+    // The Visit date belongs to the visit: marking Visited dates it, leaving Visited drops it.
+    const visitDate = mark === 'visited' ? (before.visitDate ?? monthOf(now())) : null;
+    let entered = false;
+    transaction(db, () => {
+      entered = enter(place);
+      save({ ...before, mark, visitDate });
+    });
+    undoable = { place: { level: place.level, id: place.id }, mark: before.mark, visitDate: before.visitDate, entered };
+  };
+
   return {
-    /** Sets a Place's Mark; a City given whole enters the Journal with it, if not there yet. */
-    mark(place: PlaceRef | City, mark: Mark | null) {
-      const before = recordOf(place);
-      // The Visit date belongs to the visit: marking Visited dates it, leaving Visited drops it.
-      const visitDate = mark === 'visited' ? (before.visitDate ?? monthOf(now())) : null;
-      let entered = false;
-      transaction(db, () => {
-        entered = enter(place);
-        save({ ...before, mark, visitDate });
-      });
-      undoable = { place: { level: place.level, id: place.id }, mark: before.mark, visitDate: before.visitDate, entered };
+    mark,
+    /**
+     * Marks a Place Wish, a Place picked to visit, unless it has a Mark of its own: a Place
+     * Visited stays Visited. Returns the Mark it had, null when it is newly marked Wish.
+     */
+    wish(place: PlaceRef | City): Mark | null {
+      const had = recordOf(place).mark;
+      if (had === null) mark(place, 'wish');
+      return had;
     },
     /** Takes back the last change of Mark. Returns its Place, or null when there is none. */
     undo(): PlaceRef | null {
