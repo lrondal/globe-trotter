@@ -152,6 +152,12 @@ export type GlobeHandle = {
    */
   select(country: number, footprint?: Footprint): void;
   /**
+   * Flies to a City of the Country at this index, framing `footprint`, and opens its sheet. In
+   * the selected Region, which `region` is when it is the City's by its index in the Country's
+   * RegionGeometry, the Region stays selected: its Photo thumbnails stay as they are.
+   */
+  selectCity(country: number, footprint: Footprint, region: number): void;
+  /**
    * Flies to Region `region` of that Country, by its index in the Country's RegionGeometry, as
    * a tap on it does, and tells onSelect the Country. The flight starts at once: towards the
    * Country while its Regions load, then towards the Region once they are there.
@@ -356,6 +362,12 @@ export const Globe = memo(function Globe({
     select(country, loaded ? footprintOf(shown.geometry, region) : undefined, region);
     if (!loaded) awaitedRegion.value = region;
   };
+  // A City in the selected Region is still in it: the Region stays selected; elsewhere it goes.
+  const selectCity = (country: number, footprint: Footprint, region: number) => {
+    'worklet';
+    const inSelected = country === selectedCountry.value && region >= 0 && region === selectedRegion.value;
+    select(country, footprint, inSelected ? region : -1);
+  };
   // Recentring lets go of the selected Country: the whole globe faces the point, sheet closed.
   const flyTo = (point: Point) => {
     'worklet';
@@ -373,6 +385,7 @@ export const Globe = memo(function Globe({
     ref,
     () => ({
       select: (country, footprint) => scheduleOnUI(select, country, footprint),
+      selectCity: (country, footprint, region) => scheduleOnUI(selectCity, country, footprint, region),
       selectRegion: (country, region) => scheduleOnUI(selectRegion, country, region),
       backToCountry: () => scheduleOnUI(backToCountry),
       deselect: () => scheduleOnUI(deselect),
