@@ -124,6 +124,8 @@ const THUMBNAIL_LIFT = 4;
 const THUMBNAIL_RING = 1.5;
 /** A thumbnail is tapped this far from its centre, in points: a 44 pt zone. */
 const THUMBNAIL_REACH = layout.hitMin / 2;
+/** Below this, in points, the sheet counts as closed and the globe as lowered: at rest. */
+const SETTLED_PT = 0.5;
 /** Its counter: a pill this high, in points, over its top right, its count in the overline's type. */
 const COUNTER_HEIGHT = 16;
 const COUNTER_FONT = require('@expo-google-fonts/hanken-grotesk/600SemiBold/HankenGrotesk_600SemiBold.ttf');
@@ -915,6 +917,8 @@ export const Globe = memo(function Globe({
       spin.value = release(view(), fingerTrack.value, performance.now(), measured, globeRadius(viewport.value));
     })
     .onFinalize(() => {
+      // Called however the touch ends: a tap or a long press winning the race cancels the
+      // pan, which finalizes it too, so the globe never stays held.
       touching.value = false;
     });
   const pinchGesture = Gesture.Pinch()
@@ -972,8 +976,8 @@ export const Globe = memo(function Globe({
       !flight.value &&
       holding.value === 0 &&
       selectedCountry.value < 0 &&
-      sheetHeight.value === 0 &&
-      lift.value === 0;
+      sheetHeight.value < SETTLED_PT &&
+      Math.abs(lift.value) < SETTLED_PT;
     if (rotating.value && idle && dt > 0) {
       const turned = autoTurn(view(), turnPace.value, dt);
       turnTo(turned.view);

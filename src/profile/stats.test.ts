@@ -5,9 +5,22 @@ import assert from 'node:assert/strict';
 import { statsLine } from './stats.ts';
 
 test('the Profile tells how many Places are Visited, of each kind', () => {
-  assert.equal(statsLine({ countries: 16, regions: 23, cities: 41 }), '16 pays et territoires · 23 régions · 41 villes visités');
+  assert.equal(
+    statsLine({ countries: 16, regions: 23, islands: 0, cities: 41 }),
+    '16 pays et territoires · 23 régions · 41 villes visités',
+  );
+});
+
+test('the Islands Visited count among the régions', () => {
+  assert.equal(
+    statsLine({ countries: 2, regions: 3, islands: 2, cities: 4 }),
+    '2 pays et territoires · 5 régions · 4 villes visités',
+  );
 });
 
 test('one of a kind, or none, is in the singular', () => {
-  assert.equal(statsLine({ countries: 1, regions: 1, cities: 0 }), '1 pays ou territoire · 1 région · 0 ville visités');
+  assert.equal(
+    statsLine({ countries: 1, regions: 0, islands: 1, cities: 0 }),
+    '1 pays ou territoire · 1 région · 0 ville visités',
+  );
 });
