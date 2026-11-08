@@ -1,8 +1,9 @@
 // The Journal view (« Carnet »): the Places of Journal.byCountry as the screen lists them,
-// named, in order, and narrowed to a search. And the Wishlist view (« Envies »), likewise
-// for Journal.wishlist. And a Country's page, for Journal.countryPage.
+// named, in order, and narrowed to a search. And the Wishlist view (« Envies »): the timeline
+// of Journal.plans. And a Country's page, for Journal.countryPage.
 import { fold } from '../atlas/cities.ts';
-import type { CountryGroup, CountryPage, Mark, PageGroup, PlaceRef } from './journal.ts';
+import type { CountryGroup, CountryPage, Mark, PageGroup, Plan, PlaceRef } from './journal.ts';
+import { visitDateOf, yearMonthOf } from './visitDate.ts';
 
 /** What the Journal view reads of a Place besides the Journal's list. */
 type Lookup = {
@@ -16,30 +17,44 @@ export type ViewGroup = { countryId: string; name: string; rows: ViewRow[] };
 
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'fr');
 
-/** What the Wishlist view reads of a Place besides its name and Note. */
-type WishLookup = Lookup & {
-  /** The name of the Country it is in; empty for a Country. */
-  whereOf(place: PlaceRef): string;
-};
+/** A group of the Wishlist's timeline: its Plans, and whether the user orders them by hand. */
+export type PlanGroup<P extends Plan = Plan> = { title: string; plans: P[]; reorderable: boolean };
 
-export type WishRow = { place: PlaceRef; name: string; meta: string };
+/** How many months « Prochainement » looks ahead, the current one included. */
+const SOON = 12;
 
 /**
- * The Wishlist view (« Envies »): its Places by name, each with « Country · first line of its
- * Note », or « Épinglé » when it has neither; and the count line above them.
+ * The Wishlist's timeline, of the Plans in the user's order: « Prochainement » for those
+ * planned before twelve months from `today` (YYYY-MM), gone by included, by Planned date;
+ * then one group per later year and « Un jour », in the user's order, which they can change.
+ * Plans of the same month keep the user's order. Groups with no Plan are left out.
  */
-export function wishlistView(
-  wished: readonly PlaceRef[],
-  { nameOf, noteOf, whereOf }: WishLookup,
-): { count: string; rows: WishRow[] } {
-  const rows = wished
-    .map((place) => {
-      const note = noteOf(place).trim().split('\n')[0];
-      return { place, name: nameOf(place), meta: [whereOf(place), note].filter(Boolean).join(' · ') || 'Épinglé' };
-    })
-    .sort(byName);
-  const plural = rows.length > 1 ? 's' : '';
-  return { count: `${rows.length} destination${plural} épinglée${plural}`, rows };
+export function planTimeline<P extends Plan>(plans: readonly P[], today: string): PlanGroup<P>[] {
+  const { year, month } = yearMonthOf(today);
+  const soonEnd = visitDateOf(year + Math.floor((month - 1 + SOON) / 12), ((month - 1 + SOON) % 12) + 1);
+  const soon = plans.filter((p) => p.plannedDate !== null && p.plannedDate < soonEnd);
+  // Array.prototype.sort is stable: Plans of a month stay in the user's order.
+  soon.sort((a, b) => (a.plannedDate! < b.plannedDate! ? -1 : a.plannedDate! > b.plannedDate! ? 1 : 0));
+  const years = new Map<string, P[]>();
+  for (const plan of plans) {
+    if (plan.plannedDate === null || plan.plannedDate < soonEnd) continue;
+    const y = plan.plannedDate.slice(0, 4);
+    years.set(y, [...(years.get(y) ?? []), plan]);
+  }
+  return [
+    { title: 'Prochainement', plans: soon, reorderable: false },
+    ...[...years].sort(([a], [b]) => a.localeCompare(b)).map(([y, list]) => ({ title: y, plans: list, reorderable: true })),
+    { title: 'Un jour', plans: plans.filter((p) => p.plannedDate === null), reorderable: true },
+  ].filter((group) => group.plans.length > 0);
+}
+
+/**
+ * A Plan's card line: « 3 destinations », its stops, or « Tout le pays » when it has none, then
+ * « · 2 à faire », the Todos left of the Country and of its stops, if any.
+ */
+export function planSummary(stops: number, todosLeft: number): string {
+  const destinations = stops === 0 ? 'Tout le pays' : `${stops} destination${stops > 1 ? 's' : ''}`;
+  return todosLeft > 0 ? `${destinations} · ${todosLeft} à faire` : destinations;
 }
 
 /**

@@ -2,14 +2,18 @@
 // with theirs, and its other Cities, those with a Mark or content (see Journal.countryPage).
 // A row opens its Place's Note. « Ajouter une destination » searches this Country only, and
 // marks the Place picked Wish, so it takes its place in the page. Opened on one of its Places,
-// from the Wishlist say, it scrolls to that Place's row and highlights it.
+// from the Wishlist say, it scrolls to that Place's row and highlights it. A Country that is a
+// Plan shows its Planned date, set from there, and its Itinerary first, reordered by dragging.
 import { router } from 'expo-router';
 import { ChevronLeft, MapPin, NotebookPen, Plus } from 'lucide-react-native';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { SectionList, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState, type Ref, type RefObject } from 'react';
+import { SectionList, StyleSheet, Text, View, type ScrollViewProps } from 'react-native';
+// The legacy one: DragList's drag blocks it, a relation the hook-based ScrollView of v3 cannot take.
+import { LegacyScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
+import { DragList } from '@/components/DragList';
 import { IconButton } from '@/components/IconButton';
 import { HIGHLIGHT_FOR, PlaceRow } from '@/components/PlaceRow';
 import { STATUS_LABEL, StatusBadge } from '@/components/StatusBadge';
@@ -21,11 +25,24 @@ import { placeName } from '@/journal/placeName';
 import { countrySections, countryView, rowLocation, type PageRow, type PageSection } from '@/journal/view';
 import { SearchBar } from '@/search/SearchBar';
 import { useWishPick } from '@/search/useWishPick';
+import { PlannedDateButton } from '@/plans/PlannedDateButton';
 import { formatVisitDates } from '@/sheet/visitDate';
 import { colors, layout, space, text } from '@/theme/tokens';
 
 const openNote = ({ level, id }: PlaceRef) => router.push({ pathname: '/note/[level]/[id]', params: { level, id } });
 const keyOf = ({ level, id }: PlaceRef) => `${level}:${id}`;
+
+type ScrollProps = ScrollViewProps & { ref?: Ref<LegacyScrollView>; alsoRef: RefObject<LegacyScrollView | null> };
+
+/** The list's scroll view, its instance given both to the list and to `alsoRef`, for DragList. */
+function SharedScrollView({ ref, alsoRef, ...props }: ScrollProps) {
+  const both = (node: LegacyScrollView | null) => {
+    alsoRef.current = node;
+    if (typeof ref === 'function') ref(node);
+    else if (ref) ref.current = node;
+  };
+  return <LegacyScrollView {...props} ref={both} />;
+}
 
 /** Where the row arrived at is set: a third of the way down the list. */
 const FOCUS_POSITION = 0.3;
@@ -37,7 +54,7 @@ type Props = {
 };
 
 export function CountryScreen({ countryId, focus }: Props) {
-  const { journal, version, undo } = useJournal();
+  const { journal, version, undo, moveStop } = useJournal();
   const { show } = useShowOnGlobe();
   const insets = useSafeAreaInsets();
   const [adding, setAdding] = useState(false);
@@ -46,7 +63,14 @@ export function CountryScreen({ countryId, focus }: Props) {
   const country: PlaceRef = { level: 'country', id: countryId };
   const name = placeName(journal, country);
 
+  const plan = journal.plans().find((p) => p.countryId === countryId);
   // Read anew after every change to the Journal.
+  const stops = useMemo(
+    () => journal.itinerary(countryId).map((place) => ({ place, name: placeName(journal, place) })),
+    [journal, version, countryId],
+  );
+  const scroll = useRef<LegacyScrollView>(null);
+  const renderScroll = useCallback((props: ScrollViewProps) => <SharedScrollView {...props} alsoRef={scroll} />, []);
   const sections = useMemo(
     (): PageSection[] =>
       countrySections(countryView(journal.countryPage(countryId), { nameOf: (place) => placeName(journal, place) })),
@@ -113,6 +137,12 @@ export function CountryScreen({ countryId, focus }: Props) {
           <StatusBadge status={journal.status(country)} />
           {dates && <Text style={styles.dates}>{formatVisitDates(dates)}</Text>}
         </View>
+        {plan && (
+          <View style={styles.statusLine}>
+            <Text style={styles.dates}>Date prévue</Text>
+            <PlannedDateButton countryId={countryId} plannedDate={plan.plannedDate} />
+          </View>
+        )}
         <View style={styles.actions}>
           <Button variant="secondary" size="sm" icon={NotebookPen} onPress={() => openNote(country)}>
             Note
@@ -155,6 +185,38 @@ export function CountryScreen({ countryId, focus }: Props) {
           scrolled.current = false;
           requestAnimationFrame(scrollToArrival);
         }}
+        renderScrollComponent={renderScroll}
+        ListHeaderComponent={
+          stops.length > 0 ? (
+            <View>
+              <Text accessibilityRole="header" style={[styles.overline, styles.sectionTitle]}>
+                Itinéraire
+              </Text>
+              <DragList
+                items={stops}
+                keyOf={(row) => keyOf(row.place)}
+                gripLabel={(row) => `Déplacer ${row.name}`}
+                onMove={(key, to) => moveStop(stops.find((row) => keyOf(row.place) === key)!.place, to)}
+                scroll={scroll}
+                renderItem={(row, grip, index) => (
+                  <View style={styles.stop}>
+                    <View style={styles.stopRow}>
+                      <PlaceRow
+                        name={`${index + 1}. ${row.name}`}
+                        meta={metaOf(row.place)}
+                        status={journal.status(row.place)}
+                        thumbnail={journal.coverPhoto(row.place)?.thumbnail ?? null}
+                        last={index === stops.length - 1}
+                        onPress={() => openNote(row.place)}
+                      />
+                    </View>
+                    {grip}
+                  </View>
+                )}
+              />
+            </View>
+          ) : undefined
+        }
         stickySectionHeadersEnabled={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + space[7] }]}
@@ -244,6 +306,14 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     marginTop: space[5],
+  },
+  // A stop of the Itinerary, its grip beside it.
+  stop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  stopRow: {
+    flex: 1,
   },
   // A City under its Region or Island.
   indented: {

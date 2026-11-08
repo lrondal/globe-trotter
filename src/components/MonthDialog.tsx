@@ -1,4 +1,5 @@
-// The design system's Dialog holding a month and year picker: asks for a Visit date.
+// The design system's Dialog holding a month and year picker: asks for a Visit date, or a
+// Planned date.
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -13,11 +14,15 @@ type Props = {
   open: boolean;
   /** The YYYY-MM month it opens on. */
   initial: string;
-  /** The current month, YYYY-MM: the last that can be picked. */
-  latest: string;
+  /** The last month that can be picked, YYYY-MM: the current one for a Visit date. None if omitted. */
+  latest?: string;
+  /** « Date de la visite » unless given. */
+  title?: string;
   /** Called with the month picked, YYYY-MM. */
-  onConfirm: (visitDate: string) => void;
+  onConfirm: (month: string) => void;
   onCancel: () => void;
+  /** Offers to pick no month at all, under this label: « Un jour », say. */
+  clear?: { label: string; onPress: () => void };
 };
 
 /** The earliest year offered: a Visit date is written with four digits. */
@@ -26,7 +31,10 @@ const FIRST_YEAR = 1900;
 /** « janv. », « févr. »…: the months as short as French writes them, for the grid. */
 const SHORT_MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 
-export function MonthDialog({ open, initial, latest, onConfirm, onCancel }: Props) {
+/** The latest year offered without a `latest` month: a date is written with four digits. */
+const LAST_YEAR = 9999;
+
+export function MonthDialog({ open, initial, latest, title = 'Date de la visite', onConfirm, onCancel, clear }: Props) {
   const [picked, setPicked] = useState(() => yearMonthOf(initial));
   // Each opening starts from `initial`, not from what was picked last time.
   const [wasOpen, setWasOpen] = useState(open);
@@ -34,7 +42,7 @@ export function MonthDialog({ open, initial, latest, onConfirm, onCancel }: Prop
     setWasOpen(open);
     if (open) setPicked(yearMonthOf(initial));
   }
-  const last = yearMonthOf(latest);
+  const last = latest ? yearMonthOf(latest) : { year: LAST_YEAR, month: 12 };
   /** A year stepped to keeps its month, brought back to the latest when it would be to come. */
   const stepYear = (by: number) =>
     setPicked(({ year, month }) => {
@@ -48,7 +56,7 @@ export function MonthDialog({ open, initial, latest, onConfirm, onCancel }: Prop
         {/* A tap beside the dialog cancels it. */}
         <Pressable style={StyleSheet.absoluteFill} accessibilityLabel="Annuler" onPress={onCancel} />
         <View style={styles.dialog}>
-          <Text style={styles.title}>Date de la visite</Text>
+          <Text style={styles.title}>{title}</Text>
           <View style={styles.year}>
             <Pressable
               accessibilityRole="button"
@@ -107,6 +115,13 @@ export function MonthDialog({ open, initial, latest, onConfirm, onCancel }: Prop
             })}
           </View>
           <View style={styles.actions}>
+            {clear && (
+              <View style={styles.clear}>
+                <Button variant="ghost" size="sm" onPress={clear.onPress}>
+                  {clear.label}
+                </Button>
+              </View>
+            )}
             <Button variant="ghost" size="sm" onPress={onCancel}>
               Annuler
             </Button>
@@ -186,5 +201,9 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: 8,
     marginTop: 8,
+  },
+  // Apart from the others, at the start of the line.
+  clear: {
+    marginRight: 'auto',
   },
 });

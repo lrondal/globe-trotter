@@ -92,7 +92,19 @@ The list of every Place that has a Mark or any content, grouped by Country.
 _Avoid_: Notebook, log
 
 **Wishlist** (Envies):
-The list of every Place whose Mark is Wish. A Place added there from a search of every Place is marked Wish, unless it has a Mark already: a Visited Place stays Visited. A Place of the Wishlist opens its Country page, there.
+The Plans, as a timeline: « Prochainement » for those with a Planned date in the next twelve months (or gone by), by date; then one group per later year; then « Un jour » for those without one. The user orders the Plans of a year or of « Un jour » by hand. A Place added there from a search of every Place is marked Wish, unless it has a Mark already: a Visited Place stays Visited. A Plan opens its Country page.
+
+**Plan** (Projet):
+A Country holding a Place marked Wish: itself, or one of its Regions, Islands or Cities. It gathers them, with its Planned date and its Itinerary. A Plan covers a single Country.
+_Avoid_: Trip, project, journey
+
+**Planned date** (Date prévue):
+The single month-precision date a Plan is meant for, or none (« Un jour »). It goes when the Country is marked Visited, its Visit date then taking it (or the current month, if the Planned date is still to come), and when the Country stops being a Plan; undoing that change brings it back.
+_Avoid_: Trip date, due date
+
+**Itinerary** (Itinéraire):
+The order the user gives the Regions, Islands and Cities marked Wish of a Plan, its stops; a Place newly marked Wish goes last. The Country page lists them in that order too.
+_Avoid_: Route, steps
 
 **Country page** (page Pays):
 A Country's own page, opened from the Journal or the Wishlist: its Regions and Islands with a Mark or content, or holding a City with one, each with those Cities, and its other such Cities under « Autres villes ». A Place added there from a search of that Country is marked Wish, unless it has a Mark already.
