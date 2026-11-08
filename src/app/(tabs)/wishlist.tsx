@@ -22,7 +22,7 @@ import { useJournal } from '@/journal/JournalProvider';
 import { placeName } from '@/journal/placeName';
 import { planSummary, planTimeline, type PlanGroup } from '@/journal/view';
 import { monthOf } from '@/journal/visitDate';
-import { moved } from '@/note/reorder';
+import { moved } from '@/components/reorder';
 import { PlanRow } from '@/plans/PlanRow';
 import { SearchBar } from '@/search/SearchBar';
 import { useWishPick } from '@/search/useWishPick';

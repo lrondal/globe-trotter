@@ -251,6 +251,13 @@ const toPlace = (row: Row): Place => ({
 
 const keyOf = (place: PlaceRef) => `${place.level}:${place.id}`;
 
+/** The position of a Place added at the end of `list`, its peers. */
+const nextPosition = (list: readonly Place[]) => Math.max(-1, ...list.map((p) => p.position ?? -1)) + 1;
+
+/** What a Country keeps as a Plan. */
+type PlanFields = Pick<Place, 'plannedDate' | 'position'>;
+const planFieldsOf = ({ plannedDate, position }: Place): PlanFields => ({ plannedDate, position });
+
 /** In the user's order: by position, any without one last. */
 const byPosition = (a: Place, b: Place) => (a.position ?? Infinity) - (b.position ?? Infinity);
 
@@ -447,8 +454,9 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
   };
 
   /**
-   * The last change of Mark: the Place, its Mark and Visit date before the change, whether
-   * the change put it in the Journal, a City of the list, and its Country's Planned date then.
+   * The last change of Mark: the Place, its Mark, Visit date and position before the change,
+   * whether the change put it in the Journal, a City of the list, and what its Country kept
+   * as a Plan before and after it.
    */
   let undoable: {
     place: PlaceRef;
@@ -456,7 +464,7 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
     visitDate: string | null;
     position: number | null;
     entered: boolean;
-    country: { id: string; plannedDate: string | null; position: number | null } | null;
+    country: { id: string; before: PlanFields; after: PlanFields } | null;
   } | null = null;
 
   /** Sets a Place's Mark; a City given whole enters the Journal with it, if not there yet. */
@@ -483,22 +491,23 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
             ? null
             : before.mark === 'wish'
               ? before.position
-              : nextStop(countryId);
+              : nextPosition(itinerary(countryId));
       // A Country marked Visited has been to: its Planned date gives way to the Visit date.
       save({ ...before, mark, visitDate, position, plannedDate: mark === 'visited' ? null : before.plannedDate });
       if (countryId === undefined) return;
       const ref = { level: 'country', id: countryId } as const;
       // A new Plan comes last; a Country no longer a Plan has nothing planned.
       if (!planIds().has(countryId)) save({ ...recordOf(ref), plannedDate: null, position: null });
-      else if (!wasPlan) save({ ...recordOf(ref), position: nextPlan() });
+      else if (!wasPlan) save({ ...recordOf(ref), position: nextPosition(plans()) });
     });
+    const after = countryId === undefined ? null : recordOf({ level: 'country', id: countryId });
     undoable = {
       place: { level: place.level, id: place.id },
       mark: before.mark,
       visitDate: before.visitDate,
       position: before.position,
       entered,
-      country: country && { id: country.id, plannedDate: country.plannedDate, position: country.position },
+      country: country && after && { id: country.id, before: planFieldsOf(country), after: planFieldsOf(after) },
     };
   };
 
@@ -515,17 +524,12 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
   /** The Plans' Countries, in the user's order. */
   const plans = (): Place[] =>
     [...planIds()].map((id) => recordOf({ level: 'country', id })).sort(byPosition);
-  /** The position of a Plan added at the end. */
-  const nextPlan = () => Math.max(-1, ...plans().map((plan) => plan.position ?? -1)) + 1;
 
   /** The Regions, Islands and Cities of a Country marked Wish, in the user's order: its Itinerary. */
   const itinerary = (countryId: string): Place[] =>
     [...places.values()]
       .filter((record) => record.mark === 'wish' && record.level !== 'country' && countryOf(record) === countryId)
       .sort(byPosition);
-  /** The position of a stop added at the end of a Country's Itinerary. */
-  const nextStop = (countryId: string) =>
-    Math.max(-1, ...itinerary(countryId).map((stop) => stop.position ?? -1)) + 1;
 
   return {
     mark,
@@ -546,10 +550,18 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
       transaction(db, () => {
         // Only the Mark goes back, with what it took along: content written since stays, and
         // keeps a City it entered.
-        save({ ...recordOf(place), mark, visitDate, position });
+        // A Country's own position is its place among the Plans, given back below.
+        const record = recordOf(place);
+        save({ ...record, mark, visitDate, position: place.level === 'country' ? record.position : position });
         if (country) {
+          // Only what the change left as it was: a Planned date set or Plans reordered since stay.
           const ref = { level: 'country', id: country.id } as const;
-          save({ ...recordOf(ref), plannedDate: country.plannedDate, position: country.position });
+          const current = recordOf(ref);
+          save({
+            ...current,
+            plannedDate: current.plannedDate === country.after.plannedDate ? country.before.plannedDate : current.plannedDate,
+            position: current.position === country.after.position ? country.before.position : current.position,
+          });
         }
         if (entered && !places.has(keyOf(place))) leave(place);
       });
@@ -804,6 +816,7 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
      * among the others. Those of one group of the Wishlist, say.
      */
     orderPlans(countryIds: readonly string[]) {
+      if (new Set(countryIds).size !== countryIds.length) throw new Error('A Plan given twice');
       const all = plans();
       const given = countryIds.map((id) => {
         const plan = all.find((p) => p.id === id);
@@ -837,7 +850,7 @@ export function openJournal({ db, atlas, files = NO_FILES, now = () => new Date(
       moved.splice(Math.max(0, Math.min(to, moved.length)), 0, list[from]);
       transaction(db, () => moved.forEach((stop, position) => save({ ...stop, position })));
     },
-    /** The Wishlist: every Place whose own Mark is Wish, whatever its level; in no set order. */
+    /** Every Place whose own Mark is Wish, whatever its level: those of the Plans; in no set order. */
     wishlist(): PlaceRef[] {
       return [...places.values()].filter((record) => record.mark === 'wish').map(({ level, id }) => ({ level, id }));
     },

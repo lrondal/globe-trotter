@@ -1,4 +1,4 @@
-// Where a row dragged up or down a list lands, for reordering the Todos by hand.
+// Where a row dragged up or down a list lands, for reordering a DragList by hand.
 
 /**
  * The index the dragged row takes once dropped: the number of other rows whose middle is above

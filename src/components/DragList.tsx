@@ -17,7 +17,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { dropIndex, moved } from '@/note/reorder';
+import { dropIndex, moved } from './reorder';
 import { colors, duration, easing, layout, radius, shadow } from '@/theme/tokens';
 
 /** A row's height until it is measured: one line of text. */

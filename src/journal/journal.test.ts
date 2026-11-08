@@ -940,6 +940,35 @@ test('a Country that stops being a Plan, then is one again, comes last', () => {
   assert.deepEqual(planIds(j), ['392', '620', '250']);
 });
 
+test('undo gives back only what the change of Mark took: a Planned date set or Plans reordered since stay', () => {
+  const j = journal();
+  j.mark(france, 'wish');
+  j.mark(japan, 'wish');
+  j.setPlannedDate('392', '2027-04');
+  j.mark(japan, 'visited');
+  j.mark(okinawa, 'wish');
+  j.setPlannedDate('392', '2028-01');
+  j.orderPlans(['392', '250']);
+  j.undo();
+  assert.equal(plannedDate(j, '392'), undefined);
+  j.mark(okinawa, 'wish');
+  j.setPlannedDate('392', '2028-01');
+  j.mark(kanto, 'wish');
+  j.setPlannedDate('392', '2029-06');
+  j.orderPlans(['392', '250']);
+  j.undo();
+  assert.equal(plannedDate(j, '392'), '2029-06');
+  assert.deepEqual(planIds(j), ['392', '250']);
+});
+
+test('Plans reordered with a Country given twice are refused', () => {
+  const j = journal();
+  j.mark(france, 'wish');
+  j.mark(japan, 'wish');
+  assert.throws(() => j.orderPlans(['392', '392', '250']));
+  assert.deepEqual(planIds(j), ['250', '392']);
+});
+
 test('only a Plan has a Planned date to set', () => {
   const j = journal();
   j.mark(france, 'visited');
