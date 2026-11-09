@@ -8,12 +8,14 @@
     "scheme": "globetrotter",
     "userInterfaceStyle": "light",
     "ios": {
+      "bundleIdentifier": "com.lrondal.globetrotter",
       "supportsTablet": false,
       "infoPlist": {
         "NSLocationDefaultAccuracyReduced": true
       }
     },
     "android": {
+      "package": "com.lrondal.globetrotter",
       "adaptiveIcon": {
         "backgroundColor": "#F4F1EA",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

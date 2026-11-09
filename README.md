@@ -37,6 +37,10 @@ Scan the QR code with the iPhone's Camera: the app opens in Expo Go. In developm
 
 The app uses only native modules that Expo Go includes. Adding a library with native code calls for a development build instead (`npx expo run:ios`, see `AGENTS.md`).
 
+## Install on a phone, for free
+
+Pushing a tag `v*` (e.g. `v1.0.0`) makes the **Release builds** workflow attach an unsigned iOS `.ipa` and an Android `.apk` to a GitHub Release. To install the `.ipa` on an iPhone with SideStore and a free Apple ID, which re-signs it on the phone every 7 days, or the `.apk` on Android, see [`docs/install-on-phone.md`](docs/install-on-phone.md).
+
 ## Tests
 
 ```sh
@@ -103,6 +107,7 @@ The other folders hold the parts these screens share: `components/` for the desi
 | `design-system/` | The high-fidelity design: tokens, fonts, components, UI kits and the design handoff. It is the visual reference for the app. |
 | `GLOSSARY.md` | The domain vocabulary: Place, Mark, Status, Visited, Wish, Clear, Delete… |
 | `docs/adr/` | Architecture decision records. |
+| `docs/install-on-phone.md` | How to install a release on an iPhone (SideStore) or an Android phone. |
 | `docs/agents/`, `AGENTS.md`, `CLAUDE.md` | How coding agents work in this repo. |
 
 ## How work happens here
